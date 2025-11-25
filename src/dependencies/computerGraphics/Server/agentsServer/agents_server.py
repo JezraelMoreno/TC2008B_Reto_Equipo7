@@ -1,0 +1,168 @@
+# TC2008B. Sistemas Multiagentes y Gráficas Computacionales
+# Python flask server to interact with WebGL.
+# Octavio Navarro. 2024
+
+import sys
+from pathlib import Path
+
+from flask import Flask, request, jsonify
+from flask_cors import CORS, cross_origin
+
+# Locate the trafficBase package (now under src/trafficBase).
+_HERE = Path(__file__).resolve()
+_CANDIDATE_PATHS = [
+    _HERE.parents[4] / "trafficBase",                     # <repo>/src/trafficBase
+    _HERE.parents[3] / "mesaExamples" / "trafficBase",    # legacy location
+]
+TRAFFIC_BASE_PATH = next((p for p in _CANDIDATE_PATHS if p.exists()), None)
+if TRAFFIC_BASE_PATH is None:
+    raise ImportError("Unable to locate trafficBase package")
+
+if str(TRAFFIC_BASE_PATH) not in sys.path:
+    sys.path.append(str(TRAFFIC_BASE_PATH))
+
+from traffic_base.model import CityModel
+from traffic_base.agent import Traffic_Light, Road, Destination, Obstacle
+
+
+# Model defaults
+cityModel = None
+currentStep = 0
+default_map = "2022_base.txt"
+
+
+# This application will be used to interact with WebGL
+app = Flask("Traffic example")
+cors = CORS(app, resources={r"/*": {"origins": ["http://localhost", "http://localhost:5173"]}})
+
+
+def _serialize_agents(agent_type, include_state=False, include_direction=False):
+    agent_cells = cityModel.grid.all_cells.select(
+        lambda cell: any(isinstance(obj, agent_type) for obj in cell.agents)
+    ).cells
+
+    agents = [
+        (cell.coordinate, agent)
+        for cell in agent_cells
+        for agent in cell.agents
+        if isinstance(agent, agent_type)
+    ]
+
+    serialized_agents = []
+    for coordinate, agent in agents:
+        agent_json = {
+            "id": f"{agent_type.__name__.lower()}-{coordinate[0]}-{coordinate[1]}",
+            "x": coordinate[0],
+            "y": 1,
+            "z": coordinate[1],
+        }
+
+        if include_state:
+            agent_json["state"] = bool(agent.state)
+
+        if include_direction:
+            agent_json["direction"] = getattr(agent, "direction", None)
+
+        serialized_agents.append(agent_json)
+
+    return serialized_agents
+
+
+# This route will be used to send the parameters of the simulation to the server.
+# The server expects a POST request with the parameters in JSON.
+@app.route('/init', methods=['GET', 'POST'])
+@cross_origin()
+def initModel():
+    global currentStep, cityModel, default_map
+
+    map_file = default_map
+    num_agents = 0
+    seed = 42
+
+    if request.method == 'POST':
+        try:
+            payload = request.get_json(force=True, silent=True) or {}
+            num_agents = int(payload.get('NAgents', 0))
+            map_file = payload.get('mapFile', map_file)
+            seed = int(payload.get('seed', seed))
+            currentStep = 0
+
+        except Exception as e:
+            print(e)
+            return jsonify({"message": "Error initializing the model"}), 500
+
+    try:
+        cityModel = CityModel(num_agents, seed=seed, map_file=map_file)
+    except FileNotFoundError as e:
+        print(e)
+        return jsonify({"message": str(e)}), 400
+    except Exception as e:
+        print(e)
+        return jsonify({"message": "Error initializing the CityModel"}), 500
+
+    print(f"City model ready. Map: {map_file}, Size: {cityModel.width}x{cityModel.height}")
+
+    return jsonify({
+        "message": f"City model initiated with map {map_file}",
+        "width": cityModel.width,
+        "height": cityModel.height,
+        "map_file": map_file
+    })
+
+
+# This route will be used to get the positions for the map
+@app.route('/getMap', methods=['GET'])
+@cross_origin()
+def getMap():
+    global cityModel
+
+    if cityModel is None:
+        return jsonify({"message": "Model not initialized"}), 400
+
+    try:
+        roads = _serialize_agents(Road, include_direction=True)
+        destinations = _serialize_agents(Destination)
+        obstacles = _serialize_agents(Obstacle)
+        traffic_lights = _serialize_agents(Traffic_Light, include_state=True)
+
+        return jsonify({
+            'width': cityModel.width,
+            'height': cityModel.height,
+            'roads': roads,
+            'destinations': destinations,
+            'obstacles': obstacles,
+            'traffic_lights': traffic_lights
+        })
+    except Exception as e:
+        print(e)
+        return jsonify({"message": "Error with the map data"}), 500
+
+
+# This route will be used to update the model
+@app.route('/update', methods=['GET'])
+@cross_origin()
+def updateModel():
+    global currentStep, cityModel
+
+    if cityModel is None:
+        return jsonify({"message": "Model not initialized"}), 400
+
+    if request.method == 'GET':
+        try:
+            cityModel.step()
+            currentStep += 1
+            traffic_lights = _serialize_agents(Traffic_Light, include_state=True)
+
+            return jsonify({
+                'message': f'Model updated to step {currentStep}.',
+                'currentStep': currentStep,
+                'traffic_lights': traffic_lights
+            })
+        except Exception as e:
+            print(e)
+            return jsonify({"message": "Error during step."}), 500
+
+
+if __name__=='__main__':
+    # Run the flask server in port 8585
+    app.run(host="localhost", port=8585, debug=True)
