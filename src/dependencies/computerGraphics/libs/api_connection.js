@@ -15,6 +15,8 @@ const agent_server_uri = "http://localhost:8585/";
 const ROAD_COLOR = [0.3, 0.3, 0.3, 1.0];
 const DESTINATION_COLOR = [0.2, 0.6, 0.35, 1.0];
 const OBSTACLE_COLOR = [0.15, 0.15, 0.15, 1.0];
+const GRADAS_COLOR = [0.25, 0.25, 0.25, 1.0];
+const CAR_COLOR = [0.1, 0.5, 0.9, 1.0];
 const RED_LIGHT = [0.8, 0.1, 0.1, 1.0];
 const GREEN_LIGHT = [0.1, 0.7, 0.1, 1.0];
 
@@ -22,7 +24,9 @@ const mapElements = {
     roads: [],
     destinations: [],
     obstacles: [],
-    trafficLights: []
+    gradas: [],
+    trafficLights: [],
+    cars: [],
 };
 
 const mapMetadata = {
@@ -49,9 +53,16 @@ function buildObject(raw, color) {
 }
 
 function refreshCollection(target, rawList, colorResolver) {
+    // Mantener referencias existentes cuando sea posible para no perder los VAOs
+    const previous = new Map(target.map((obj) => [obj.id, obj]));
     target.length = 0;
+
     for (const raw of rawList) {
-        const object = buildObject(raw, colorResolver(raw));
+        const existing = previous.get(raw.id);
+        const object = existing ?? buildObject(raw, colorResolver(raw, existing));
+        object.setPosition([raw.x, raw.y, raw.z]);
+        object.color = colorResolver(raw, existing);
+        object.state = raw.state;
         target.push(object);
     }
 }
@@ -74,6 +85,7 @@ async function initAgentsModel() {
             mapMetadata.height = result.height;
             mapMetadata.map_file = result.map_file;
             console.log(result.message);
+            return result;
         }
 
     } catch (error) {
@@ -94,11 +106,15 @@ async function getMap() {
 
             mapMetadata.width = result.width ?? mapMetadata.width;
             mapMetadata.height = result.height ?? mapMetadata.height;
+            mapMetadata.map_file = result.map_file ?? mapMetadata.map_file;
 
             refreshCollection(mapElements.roads, result.roads ?? [], () => ROAD_COLOR);
             refreshCollection(mapElements.destinations, result.destinations ?? [], () => DESTINATION_COLOR);
             refreshCollection(mapElements.obstacles, result.obstacles ?? [], () => OBSTACLE_COLOR);
+            refreshCollection(mapElements.gradas, result.gradas ?? [], () => GRADAS_COLOR);
             refreshCollection(mapElements.trafficLights, result.traffic_lights ?? [], (raw) => trafficLightColor(raw.state));
+            refreshCollection(mapElements.cars, result.cars ?? [], () => CAR_COLOR);
+            return result;
         }
 
     } catch (error) {
@@ -116,15 +132,9 @@ async function update() {
 
         if (response.ok) {
             let result = await response.json();
-            const lights = result.traffic_lights ?? [];
-
-            for (const light of lights) {
-                const currentLight = mapElements.trafficLights.find((obj) => obj.id === light.id);
-                if (currentLight != undefined) {
-                    currentLight.state = light.state;
-                    currentLight.color = trafficLightColor(light.state);
-                }
-            }
+            refreshCollection(mapElements.trafficLights, result.traffic_lights ?? [], (raw) => trafficLightColor(raw.state));
+            refreshCollection(mapElements.cars, result.cars ?? [], () => CAR_COLOR);
+            return result;
         }
 
     } catch (error) {

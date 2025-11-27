@@ -1,9 +1,7 @@
-import json
-from pathlib import Path
-
 from mesa import Model
 from mesa.discrete_space import OrthogonalMooreGrid
 from traffic_base.agent import *
+from pathlib import Path
 import json
 import random
 import math
@@ -16,15 +14,19 @@ class CityModel(Model):
     Args:
         N: Number of agents in the simulation
         seed: Random seed for the model
-        map_file: Map filename relative to the city_files directory
     """
 
-    def __init__(self, N=4, seed=42, spawn_interval=10):
+    def __init__(self, N=4, seed=42, spawn_interval=10, map_file="2024_base.txt"):
 
         super().__init__(seed=seed)
 
         # Load the map dictionary
-        dataDictionary = json.load(open("city_files/mapDictionary.json"))
+        base_path = Path(__file__).resolve().parents[1] / "city_files"
+        dictionary_path = base_path / "mapDictionary.json"
+        if not dictionary_path.exists():
+            raise FileNotFoundError(f"No se encontró el diccionario del mapa en {dictionary_path}")
+
+        dataDictionary = json.loads(dictionary_path.read_text())
 
         self.num_agents = N
         self.traffic_lights = []
@@ -34,9 +36,14 @@ class CityModel(Model):
         self.next_spawn_step = spawn_interval
         self.total_cars_created = 0
         self.total_cars_arrived = 0
+        self.gradas = []
 
         # Load the map file
-        with open("city_files/2024_base.txt") as baseFile:
+        map_path = base_path / map_file
+        if not map_path.exists():
+            raise FileNotFoundError(f"No se encontró el archivo de mapa {map_path}")
+
+        with open(map_path) as baseFile:
             lines = baseFile.readlines()
             self.width = len(lines[0].strip())
             self.height = len(lines)
@@ -66,6 +73,10 @@ class CityModel(Model):
 
                     elif col == "#":
                         agent = Obstacle(self, cell)
+
+                    elif col == "G":
+                        agent = Gradas(self, cell)
+                        self.gradas.append(agent)
 
                     elif col == "D":
                         agent = Destination(self, cell)
@@ -134,7 +145,7 @@ class CityModel(Model):
             
             cell = self.grid[position]
             
-            car = Car(self, position)
+            car = Car(self, position, car_id=self.total_cars_created + 1)
             car.cell = cell
             self.total_cars_created += 1
             
@@ -156,7 +167,7 @@ class CityModel(Model):
             print(f"No se puede crear coche en {position}, posición ocupada")
             return False
         
-        car = Car(self, position)
+        car = Car(self, position, car_id=self.total_cars_created + 1)
         car.cell = cell
         self.total_cars_created += 1
         
@@ -175,7 +186,7 @@ class CityModel(Model):
         cell = self.grid[pos]
         agents_in_cell = list(cell.agents)
         
-        if any(isinstance(agent, Obstacle) for agent in agents_in_cell):
+        if any(isinstance(agent, (Obstacle, Gradas)) for agent in agents_in_cell):
             return False
         
         return any(isinstance(agent, (Road, Traffic_Light, Destination)) 
@@ -408,4 +419,4 @@ class CityModel(Model):
         # Imprimir estadísticas cada 50 steps
         if self.steps % 50 == 0:
             active_cars = sum(1 for agent in self.agents if isinstance(agent, Car))
-            print(f"\n📊 Step {self.steps} - Coches activos: {active_cars} | Creados: {self.total_cars_created} | Llegaron: {self.total_cars_arrived}")
+            print(f"\n Step {self.steps} - Coches activos: {active_cars} | Creados: {self.total_cars_created} | Llegaron: {self.total_cars_arrived}")

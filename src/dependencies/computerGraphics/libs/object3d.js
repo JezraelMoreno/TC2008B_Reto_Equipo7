@@ -51,6 +51,7 @@ class Object3D {
         this.arrays = undefined;
         this.bufferInfo = undefined;
         this.vao = undefined;
+        this.offsetY = 0;
     }
 
     setPosition(position) {
@@ -63,7 +64,7 @@ class Object3D {
 
     // Return the position as an array
     get posArray() {
-        return [this.position.x, this.position.y, this.position.z];
+        return [this.position.x, this.position.y + (this.offsetY || 0), this.position.z];
     }
 
     // Return the scale as an array

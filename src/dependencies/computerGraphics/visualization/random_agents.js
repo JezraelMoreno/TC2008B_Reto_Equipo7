@@ -15,6 +15,7 @@ import { M4 } from '../libs/3d-lib';
 import { Scene3D } from '../libs/scene3d';
 import { Object3D } from '../libs/object3d';
 import { Camera3D } from '../libs/camera3d';
+import { getModelo, modelos } from '../libs/modelos.js';
 
 // Functions and arrays for the communication with the API
 import {
@@ -47,8 +48,20 @@ let gl = undefined;
 const duration = 10; // ms
 let elapsed = 0;
 let then = 0;
+let baseCube = undefined;
+let setBaseShapeRef = undefined;
 
-const { roads, destinations, obstacles, trafficLights } = mapElements;
+const carScale = { x: 0.35, y: 0.35, z: 0.35 };
+const roadScale = { x: 0.5, y: 0.08, z: 0.5 };
+const blockScale = { x: 0.5, y: 0.5, z: 0.5 };
+const lightScale = { x: 0.35, y: 0.8, z: 0.35 };
+
+const sunLight = {
+  direction: [0, -1, 0],   // Luz entrando desde arriba hacia abajo
+  ambient: [0.25, 0.25, 0.3],
+};
+
+const { roads, destinations, obstacles, gradas, trafficLights, cars } = mapElements;
 
 
 // Main function is async to be able to make the requests
@@ -104,26 +117,130 @@ function setupScene() {
 
 function setupObjects(scene, gl, programInfo) {
   // Create VAOs for the different shapes
-  const baseCube = new Object3D(-1);
+  baseCube = new Object3D(-1);
+  baseCube.useVertexColors = false;
   baseCube.prepareVAO(gl, programInfo);
 
-  const roadScale = { x: 0.5, y: 0.08, z: 0.5 };
-  const blockScale = { x: 0.5, y: 0.5, z: 0.5 };
-  const lightScale = { x: 0.35, y: 0.8, z: 0.35 };
-
-  const attachBaseShape = (object, scale) => {
-    object.arrays = baseCube.arrays;
-    object.bufferInfo = baseCube.bufferInfo;
-    object.vao = baseCube.vao;
+  setBaseShapeRef = (object, scale, baseShape = baseCube, offsetY = 0, rotation = null) => {
+    object.arrays = baseShape.arrays;
+    object.bufferInfo = baseShape.bufferInfo;
+    object.vao = baseShape.vao;
     object.scale = scale;
-    scene.addObject(object);
+    object.vertexColorMix = baseShape.useVertexColors ? 1.0 : 0.0;
+    object.offsetY = offsetY;
+    if (rotation) {
+      object.rotDeg = { x: rotation.x || 0, y: rotation.y || 0, z: rotation.z || 0 };
+      object.rotRad = {
+        x: object.rotDeg.x * Math.PI / 180,
+        y: object.rotDeg.y * Math.PI / 180,
+        z: object.rotDeg.z * Math.PI / 180,
+      };
+    }
   };
 
-  roads.forEach((road) => attachBaseShape(road, roadScale));
-  destinations.forEach((destination) => attachBaseShape(destination, blockScale));
-  obstacles.forEach((obstacle) => attachBaseShape(obstacle, blockScale));
-  trafficLights.forEach((trafficLight) => attachBaseShape(trafficLight, lightScale));
+  // Prepare traffic light model (S/s) if available
+  const trafficLightModel = getModelo('trafficLight');
+  let trafficLightBase = null;
+  if (trafficLightModel) {
+    trafficLightBase = new Object3D(-2);
+    trafficLightBase.arrays = trafficLightModel.arrays;
+    trafficLightBase.bufferInfo = twgl.createBufferInfoFromArrays(gl, trafficLightModel.arrays);
+    trafficLightBase.vao = twgl.createVAOFromBufferInfo(gl, programInfo, trafficLightBase.bufferInfo);
+    trafficLightBase.useVertexColors = true;
+  }
 
+  // Preparar modelos de montañas para los obstáculos (#)
+  const mountainModels = modelos.filter((m) => m.id.startsWith('mountain'));
+  const mountainBases = mountainModels.map((model) => {
+    const base = new Object3D(`mount-base-${model.id}`);
+    base.arrays = model.arrays;
+    base.bufferInfo = twgl.createBufferInfoFromArrays(gl, model.arrays);
+    base.vao = twgl.createVAOFromBufferInfo(gl, programInfo, base.bufferInfo);
+    base.useVertexColors = !model.color;
+    return { model, base };
+  });
+  const mountainChoice = new Map();
+
+  const roadColor = roads[0]?.color ?? [0.3, 0.3, 0.3, 1];
+  const gradasModel = getModelo('bleachers');
+  let gradasBase = null;
+  if (gradasModel) {
+    gradasBase = new Object3D(-3);
+    gradasBase.arrays = gradasModel.arrays;
+    gradasBase.bufferInfo = twgl.createBufferInfoFromArrays(gl, gradasModel.arrays);
+    gradasBase.vao = twgl.createVAOFromBufferInfo(gl, programInfo, gradasBase.bufferInfo);
+    gradasBase.useVertexColors = !gradasModel.color;
+  }
+
+  roads.forEach((road) => {
+    setBaseShapeRef(road, roadScale);
+    scene.addObject(road);
+  });
+  destinations.forEach((destination) => {
+    setBaseShapeRef(destination, blockScale);
+    scene.addObject(destination);
+  });
+  obstacles.forEach((obstacle) => {
+    if (mountainBases.length > 0) {
+      const cached = mountainChoice.get(obstacle.id);
+      const pick = cached ?? mountainBases[Math.floor(Math.random() * mountainBases.length)];
+      mountainChoice.set(obstacle.id, pick);
+      const { model, base } = pick;
+      const scale = { x: model.escala, y: model.escala, z: model.escala };
+      const offsetY = model.offsetY ?? 0;
+      obstacle.color = model.color ?? obstacle.color;
+      setBaseShapeRef(obstacle, scale, base, offsetY);
+    } else {
+      setBaseShapeRef(obstacle, blockScale);
+    }
+    scene.addObject(obstacle);
+  });
+  gradas.forEach((grada) => {
+    if (gradasBase && gradasModel) {
+      const scale = { x: gradasModel.escala, y: gradasModel.escala, z: gradasModel.escala };
+      const offsetY = gradasModel.offsetY ?? 0;
+      setBaseShapeRef(grada, scale, gradasBase, offsetY, gradasModel.rotation);
+    } else {
+      setBaseShapeRef(grada, blockScale);
+    }
+    scene.addObject(grada);
+  });
+  trafficLights.forEach((trafficLight) => {
+    // Poner un tile de carretera debajo del semáforo para evitar huecos visuales
+    const roadTile = new Object3D(`road-tl-${trafficLight.id}`, trafficLight.posArray);
+    roadTile.color = roadColor;
+    setBaseShapeRef(roadTile, roadScale);
+    scene.addObject(roadTile);
+
+    if (trafficLightBase && trafficLightModel) {
+      const scale = { x: trafficLightModel.escala, y: trafficLightModel.escala, z: trafficLightModel.escala };
+      const offsetY = trafficLightModel.offsetY ?? 0;
+      setBaseShapeRef(trafficLight, scale, trafficLightBase, offsetY);
+    } else {
+      setBaseShapeRef(trafficLight, lightScale);
+    }
+    scene.addObject(trafficLight);
+  });
+
+  syncCarsInScene();
+
+}
+
+function syncCarsInScene(setBaseShape = setBaseShapeRef) {
+  // Eliminar carros que ya no están reportados por la API
+  if (!setBaseShape) return;
+  const activeIds = new Set(cars.map((car) => car.id));
+  scene.objects = scene.objects.filter((object) => !object.isCar || activeIds.has(object.id));
+
+  cars.forEach((car) => {
+    car.isCar = true;
+    if (!car.vao) {
+      setBaseShape(car, carScale);
+    }
+    if (!scene.objects.includes(car)) {
+      scene.addObject(car);
+    }
+  });
 }
 
 // Draw an object with its corresponding transformations
@@ -162,12 +279,16 @@ function drawObject(gl, programInfo, object, viewProjectionMatrix, fract) {
   // Apply the projection to the final matrix for the
   // World-View-Projection
   const wvpMat = M4.multiply(viewProjectionMatrix, transforms);
+  const worldInverse = M4.inverse(transforms);
+  const worldInverseTranspose = M4.transpose(worldInverse);
 
   // Model uniforms
-  let objectUniforms = {
-    u_transforms: wvpMat,
-    u_color: object.color ?? [1, 1, 1, 1]
-  }
+  const objectUniforms = {
+    u_worldViewProjection: wvpMat,
+    u_worldInverseTranspose: worldInverseTranspose,
+    u_color: object.color ?? [1, 1, 1, 1],
+    u_vertexColorMix: object.vertexColorMix ?? 0,
+  };
   twgl.setUniforms(programInfo, objectUniforms);
 
   gl.bindVertexArray(object.vao);
@@ -197,6 +318,10 @@ async function drawScene() {
 
   // Draw the objects
   gl.useProgram(colorProgramInfo.program);
+  twgl.setUniforms(colorProgramInfo, {
+    u_lightDirection: sunLight.direction,
+    u_ambient: sunLight.ambient,
+  });
   for (let object of scene.objects) {
     drawObject(gl, colorProgramInfo, object, viewProjectionMatrix, fract);
   }
@@ -205,6 +330,7 @@ async function drawScene() {
   if (elapsed >= duration) {
     elapsed = 0;
     await update();
+    syncCarsInScene();
   }
 
   requestAnimationFrame(drawScene);

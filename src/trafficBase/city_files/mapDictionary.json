@@ -3,6 +3,7 @@
     "<" : "Left",
     "S" : 15,
     "s" : 7,
+    "G" : "Gradas",
     "#" : "Obstacle",
     "v" : "Down",
     "^" : "Up",
