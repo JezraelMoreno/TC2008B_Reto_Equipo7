@@ -27,6 +27,8 @@ import mtnDesert6Obj from '../assets/modelos/Montañas/obj/Mountain_desert_006.o
 import mtnDesert6Mtl from '../assets/modelos/Montañas/obj/Mountain_desert_006.mtl?raw';
 import gradasObj from '../assets/modelos/gradas/bleachers_v1_L1.123c489e84b7-a282-451c-9689-6412d8ec0dac/gradas_mod.obj?raw';
 import gradasMtl from '../assets/modelos/gradas/bleachers_v1_L1.123c489e84b7-a282-451c-9689-6412d8ec0dac/gradas_mod.mtl?raw';
+import rallyKartObj from '../assets/modelos/carros/source/rallyKart.obj?raw';
+import rallyKartMtl from '../assets/modelos/carros/source/rallyKart.mtl?raw';
 
 function centrarModelo(arrays) {
     const posiciones = arrays?.a_position?.data;
@@ -77,6 +79,20 @@ function prepararMontana(id, nombre, objRaw, mtlRaw, alturaObjetivo = 0.5) {
     };
 }
 
+function prepararCarro(id, nombre, objRaw, mtlRaw, alturaObjetivo = 0.42) {
+    const materials = loadMtl(mtlRaw);
+    const { arrays, altura } = centrarModelo(loadObj(objRaw, materials));
+    const escala = altura > 0 ? alturaObjetivo / altura : 0.0025;
+
+    return {
+        id,
+        nombre,
+        arrays,
+        escala,
+        offsetY: (altura * escala) / 2,
+    };
+}
+
 // Cargar materiales para aplicar colores del MTL
 const materialsTraffic = loadMtl(trafficLightMtl);
 
@@ -98,6 +114,7 @@ const modelos = [
         escala: escalaTraffic,
         offsetY: (alturaTraffic * escalaTraffic) / 2,
     },
+    prepararCarro('rallyKart', 'Rally Kart', rallyKartObj, rallyKartMtl),
     {
         id: 'bleachers',
         nombre: 'Gradas',

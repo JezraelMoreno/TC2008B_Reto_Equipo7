@@ -40,6 +40,19 @@ const initData = {
     NAgents: 0
 };
 
+function orientCarByMovement(car) {
+    if (!car.prevPosition || !car.targetPosition) return;
+    const dx = car.targetPosition.x - car.prevPosition.x;
+    const dz = car.targetPosition.z - car.prevPosition.z;
+    const mag = Math.hypot(dx, dz);
+    if (mag < 1e-4) return;
+
+    const yawDeg = Math.atan2(dx, dz) * 180 / Math.PI; // 0° mira hacia +Z
+    const baseYaw = car.baseYaw ?? 0;
+    car.rotDeg.y = yawDeg + baseYaw;
+    car.rotRad.y = car.rotDeg.y * Math.PI / 180;
+}
+
 
 function trafficLightColor(isGreen) {
     return isGreen ? GREEN_LIGHT : RED_LIGHT;
@@ -52,10 +65,11 @@ function buildObject(raw, color) {
     return object;
 }
 
-function refreshCollection(target, rawList, colorResolver) {
+function refreshCollection(target, rawList, colorResolver, options = {}) {
     // Mantener referencias existentes cuando sea posible para no perder los VAOs
     const previous = new Map(target.map((obj) => [obj.id, obj]));
     target.length = 0;
+    const { onUpdate } = options;
 
     for (const raw of rawList) {
         const existing = previous.get(raw.id);
@@ -63,6 +77,9 @@ function refreshCollection(target, rawList, colorResolver) {
         object.setPosition([raw.x, raw.y, raw.z]);
         object.color = colorResolver(raw, existing);
         object.state = raw.state;
+        if (onUpdate) {
+            onUpdate(object, raw, existing);
+        }
         target.push(object);
     }
 }
@@ -113,7 +130,9 @@ async function getMap() {
             refreshCollection(mapElements.obstacles, result.obstacles ?? [], () => OBSTACLE_COLOR);
             refreshCollection(mapElements.gradas, result.gradas ?? [], () => GRADAS_COLOR);
             refreshCollection(mapElements.trafficLights, result.traffic_lights ?? [], (raw) => trafficLightColor(raw.state));
-            refreshCollection(mapElements.cars, result.cars ?? [], () => CAR_COLOR);
+            refreshCollection(mapElements.cars, result.cars ?? [], () => CAR_COLOR, {
+                onUpdate: orientCarByMovement,
+            });
             return result;
         }
 
@@ -133,7 +152,9 @@ async function update() {
         if (response.ok) {
             let result = await response.json();
             refreshCollection(mapElements.trafficLights, result.traffic_lights ?? [], (raw) => trafficLightColor(raw.state));
-            refreshCollection(mapElements.cars, result.cars ?? [], () => CAR_COLOR);
+            refreshCollection(mapElements.cars, result.cars ?? [], () => CAR_COLOR, {
+                onUpdate: orientCarByMovement,
+            });
             return result;
         }
 

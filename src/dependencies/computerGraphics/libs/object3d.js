@@ -24,6 +24,8 @@ class Object3D {
             y: position[1],
             z: position[2],
         };
+        this.prevPosition = { ...this.position };
+        this.targetPosition = { ...this.position };
         this.rotDeg = {
             x: rotation[0],
             y: rotation[1],
@@ -52,19 +54,38 @@ class Object3D {
         this.bufferInfo = undefined;
         this.vao = undefined;
         this.offsetY = 0;
+        this.baseYaw = 0;
     }
 
-    setPosition(position) {
+    setPosition(position, trackPrevious = true) {
+        if (trackPrevious) {
+            const source = this.targetPosition ?? this.position;
+            this.prevPosition = { x: source.x, y: source.y, z: source.z };
+        } else {
+            this.prevPosition = { x: position[0], y: position[1], z: position[2] };
+        }
         this.position = {
             x: position[0],
             y: position[1],
             z: position[2],
         };
+        this.targetPosition = { ...this.position };
     }
 
     // Return the position as an array
     get posArray() {
         return [this.position.x, this.position.y + (this.offsetY || 0), this.position.z];
+    }
+
+    getInterpolatedPos(alpha = 1) {
+        const t = Math.min(Math.max(alpha, 0), 1);
+        const start = this.prevPosition ?? this.position;
+        const end = this.targetPosition ?? this.position;
+        return [
+            start.x + (end.x - start.x) * t,
+            start.y + (end.y - start.y) * t + (this.offsetY || 0),
+            start.z + (end.z - start.z) * t,
+        ];
     }
 
     // Return the scale as an array

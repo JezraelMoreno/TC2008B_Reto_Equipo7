@@ -6,6 +6,7 @@ in vec3 v_normal;
 
 uniform vec3 u_lightDirection;   // Dirección desde la luz hacia la escena
 uniform vec3 u_ambient;          // Componente ambiental (RGB)
+uniform vec3 u_emissive;         // Emisión propia del objeto (RGB)
 
 out vec4 outColor;
 
@@ -16,5 +17,7 @@ void main() {
     vec3 diffuse = v_color.rgb * light;
     vec3 ambient = v_color.rgb * u_ambient;
 
-    outColor = vec4(diffuse + ambient, v_color.a);
+    vec3 emissive = u_emissive;
+
+    outColor = vec4(diffuse + ambient + emissive, v_color.a);
 }

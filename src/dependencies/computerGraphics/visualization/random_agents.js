@@ -45,13 +45,14 @@ const settings = {
 // Global variables
 let colorProgramInfo = undefined;
 let gl = undefined;
-const duration = 10; // ms
-let elapsed = 0;
-let then = 0;
 let baseCube = undefined;
 let setBaseShapeRef = undefined;
+let setCarShapeRef = undefined;
+let stepDuration = 250; // ms between API steps (adaptive)
+let lastUpdateTime = 0;
+let updating = false;
 
-const carScale = { x: 0.35, y: 0.35, z: 0.35 };
+const defaultCarScale = { x: 0.35, y: 0.35, z: 0.35 };
 const roadScale = { x: 0.5, y: 0.08, z: 0.5 };
 const blockScale = { x: 0.5, y: 0.5, z: 0.5 };
 const lightScale = { x: 0.35, y: 0.8, z: 0.35 };
@@ -80,6 +81,7 @@ async function main() {
 
   // Get the city map (roads, destinations, obstacles and traffic lights)
   await getMap();
+  lastUpdateTime = performance.now();
 
 
   // Initialize the scene
@@ -135,8 +137,27 @@ function setupObjects(scene, gl, programInfo) {
         y: object.rotDeg.y * Math.PI / 180,
         z: object.rotDeg.z * Math.PI / 180,
       };
+      object.baseYaw = object.rotDeg.y;
+    } else {
+      object.baseYaw = object.baseYaw ?? 0;
     }
   };
+
+  const rallyKartModel = getModelo('rallyKart');
+  let carBase = null;
+  let carScale = defaultCarScale;
+  let carOffsetY = 0;
+  let carRotation = null;
+  if (rallyKartModel) {
+    carBase = new Object3D(-4);
+    carBase.arrays = rallyKartModel.arrays;
+    carBase.bufferInfo = twgl.createBufferInfoFromArrays(gl, rallyKartModel.arrays);
+    carBase.vao = twgl.createVAOFromBufferInfo(gl, programInfo, carBase.bufferInfo);
+    carBase.useVertexColors = !rallyKartModel.color;
+    carScale = { x: rallyKartModel.escala, y: rallyKartModel.escala, z: rallyKartModel.escala };
+    carOffsetY = rallyKartModel.offsetY ?? 0;
+    carRotation = rallyKartModel.rotation ?? null;
+  }
 
   // Prepare traffic light model (S/s) if available
   const trafficLightModel = getModelo('trafficLight');
@@ -206,6 +227,7 @@ function setupObjects(scene, gl, programInfo) {
     scene.addObject(grada);
   });
   trafficLights.forEach((trafficLight) => {
+    trafficLight.isTrafficLight = true;
     // Poner un tile de carretera debajo del semáforo para evitar huecos visuales
     const roadTile = new Object3D(`road-tl-${trafficLight.id}`, trafficLight.posArray);
     roadTile.color = roadColor;
@@ -222,11 +244,15 @@ function setupObjects(scene, gl, programInfo) {
     scene.addObject(trafficLight);
   });
 
-  syncCarsInScene();
+  setCarShapeRef = carBase
+    ? (object) => setBaseShapeRef(object, carScale, carBase, carOffsetY, carRotation)
+    : (object) => setBaseShapeRef(object, defaultCarScale);
+
+  syncCarsInScene(setCarShapeRef);
 
 }
 
-function syncCarsInScene(setBaseShape = setBaseShapeRef) {
+function syncCarsInScene(setBaseShape = (object) => setBaseShapeRef(object, defaultCarScale)) {
   // Eliminar carros que ya no están reportados por la API
   if (!setBaseShape) return;
   const activeIds = new Set(cars.map((car) => car.id));
@@ -235,7 +261,7 @@ function syncCarsInScene(setBaseShape = setBaseShapeRef) {
   cars.forEach((car) => {
     car.isCar = true;
     if (!car.vao) {
-      setBaseShape(car, carScale);
+      setBaseShape(car);
     }
     if (!scene.objects.includes(car)) {
       scene.addObject(car);
@@ -244,9 +270,9 @@ function syncCarsInScene(setBaseShape = setBaseShapeRef) {
 }
 
 // Draw an object with its corresponding transformations
-function drawObject(gl, programInfo, object, viewProjectionMatrix, fract) {
+function drawObject(gl, programInfo, object, viewProjectionMatrix, alpha) {
   // Prepare the vector for translation and scale
-  let v3_tra = object.posArray;
+  let v3_tra = object.getInterpolatedPos(alpha);
   let v3_sca = object.scaArray;
 
   /*
@@ -282,12 +308,17 @@ function drawObject(gl, programInfo, object, viewProjectionMatrix, fract) {
   const worldInverse = M4.inverse(transforms);
   const worldInverseTranspose = M4.transpose(worldInverse);
 
+  const emissiveColor = object.emissive
+    ? object.emissive
+    : (object.isTrafficLight ? (object.color ?? [1, 1, 1, 1]).slice(0, 3).map((c) => c * 0.9) : [0, 0, 0]);
+
   // Model uniforms
   const objectUniforms = {
     u_worldViewProjection: wvpMat,
     u_worldInverseTranspose: worldInverseTranspose,
     u_color: object.color ?? [1, 1, 1, 1],
     u_vertexColorMix: object.vertexColorMix ?? 0,
+    u_emissive: emissiveColor,
   };
   twgl.setUniforms(programInfo, objectUniforms);
 
@@ -297,12 +328,8 @@ function drawObject(gl, programInfo, object, viewProjectionMatrix, fract) {
 
 // Function to do the actual display of the objects
 async function drawScene() {
-  // Compute time elapsed since last frame
-  let now = Date.now();
-  let deltaTime = now - then;
-  elapsed += deltaTime;
-  let fract = Math.min(1.0, elapsed / duration);
-  then = now;
+  const now = performance.now();
+  const alpha = Math.min((now - lastUpdateTime) / stepDuration, 1);
 
   // Clear the canvas
   gl.clearColor(0, 0, 0, 1);
@@ -323,14 +350,25 @@ async function drawScene() {
     u_ambient: sunLight.ambient,
   });
   for (let object of scene.objects) {
-    drawObject(gl, colorProgramInfo, object, viewProjectionMatrix, fract);
+    drawObject(gl, colorProgramInfo, object, viewProjectionMatrix, alpha);
   }
 
   // Update the scene after the elapsed duration
-  if (elapsed >= duration) {
-    elapsed = 0;
-    await update();
-    syncCarsInScene();
+  if (!updating && alpha >= 1) {
+    updating = true;
+    try {
+      await update();
+      syncCarsInScene(setCarShapeRef);
+      const after = performance.now();
+      const observed = after - lastUpdateTime;
+      const clamped = Math.max(80, Math.min(1200, observed));
+      stepDuration = 0.7 * stepDuration + 0.3 * clamped;
+      lastUpdateTime = after;
+    } catch (error) {
+      console.error(error);
+    } finally {
+      updating = false;
+    }
   }
 
   requestAnimationFrame(drawScene);
