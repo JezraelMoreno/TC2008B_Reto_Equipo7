@@ -66,9 +66,9 @@ class CityModel(Model):
                     elif col == "D":
                         agent = Destination(self, cell)
                         self.destinations.append(agent)
-                        print(f"🎯 Destino 'D' encontrado en posición: {cell.coordinate}")
+                        print(f"Destino encontrado en posición: {cell.coordinate}")
 
-        print(f"Total de destinos 'D' cargados: {len(self.destinations)}")
+        print(f"Total de destinos cargados: {len(self.destinations)}")
         
         # Crear los coches en las esquinas
         self.create_cars()
@@ -104,7 +104,7 @@ class CityModel(Model):
                     if 0 <= x < self.width and 0 <= y < self.height:
                         if self.is_valid_road((x, y)):
                             direction = self.get_road_direction((x, y))
-                            print(f"  📍 Road encontrado en {(x, y)} dirección: {direction}")
+                            print(f"Road encontrado en {(x, y)} dirección: {direction}")
                             return (x, y)
         
         print(f"  ⚠️ No se encontró road cerca de {corner}")
@@ -125,7 +125,7 @@ class CityModel(Model):
             
             # Verificar que sea válido
             if not self.is_valid_road(position):
-                print(f"  ❌ Posición {position} no es válida para coche")
+                print(f"Posición {position} no es válida para coche")
                 continue
             
             cell = self.grid[position]
@@ -134,7 +134,7 @@ class CityModel(Model):
             car.cell = cell
             self.total_cars_created += 1
             
-            print(f"  ✅ Coche {self.total_cars_created} creado en posición {position}")
+            print(f"Coche {self.total_cars_created} creado en posición {position}")
     
     def spawn_new_car(self):
         """Crea un nuevo coche en una esquina aleatoria"""
@@ -149,14 +149,14 @@ class CityModel(Model):
         
         agents_in_cell = list(cell.agents)
         if any(isinstance(agent, Car) for agent in agents_in_cell):
-            print(f"⚠️ No se puede crear coche en {position}, posición ocupada")
+            print(f"No se puede crear coche en {position}, posición ocupada")
             return False
         
         car = Car(self, position)
         car.cell = cell
         self.total_cars_created += 1
         
-        print(f"🚗 Nuevo coche {self.total_cars_created} spawneado en posición {position}")
+        print(f"Nuevo coche {self.total_cars_created} spawneado en posición {position}")
         return True
             
     def heuristic(self, pos1, pos2):
@@ -334,7 +334,7 @@ class CityModel(Model):
                     path.append(current)
                     current = came_from[current]
                 path.reverse()
-                print(f"✅ Camino encontrado: {len(path)} pasos, {iterations} iteraciones")
+                print(f"Camino encontrado: {len(path)} pasos, {iterations} iteraciones")
                 return path
             
             visited.add(current)
@@ -365,9 +365,9 @@ class CityModel(Model):
                 if neighbor_direction and neighbor_direction != "All":
                     # Si el vecino tiene dirección opuesta, penalizar fuertemente
                     if (neighbor_direction == "Right" and dx < 0) or \
-                       (neighbor_direction == "Left" and dx > 0) or \
-                       (neighbor_direction == "Up" and dy < 0) or \
-                       (neighbor_direction == "Down" and dy > 0):
+                        (neighbor_direction == "Left" and dx > 0) or \
+                        (neighbor_direction == "Up" and dy < 0) or \
+                        (neighbor_direction == "Down" and dy > 0):
                         penalty = 100  # Penalizar pero no prohibir
                 
                 tentative_g = g_score[current] + move_cost + cell_weight + penalty
@@ -379,9 +379,9 @@ class CityModel(Model):
                     f_score[neighbor] = new_f
                     open_set.append((new_f, neighbor))
         
-        print(f"❌ No se encontró camino después de {iterations} iteraciones")
-        print(f"   Start direction: {self.get_road_direction(start)}")
-        print(f"   End direction: {self.get_road_direction(end)}")
+        print(f"No se encontró camino después de {iterations} iteraciones")
+        print(f"Start direction: {self.get_road_direction(start)}")
+        print(f"End direction: {self.get_road_direction(end)}")
         return []
 
     def step(self):
