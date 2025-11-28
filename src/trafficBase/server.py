@@ -1,7 +1,7 @@
 from traffic_base.agent import *
 from traffic_base.model import CityModel
 
-from mesa.visualization import Slider, SolaraViz, make_space_component
+from mesa.visualization import SolaraViz, make_space_component, make_plot_component
 from mesa.visualization.components import AgentPortrayalStyle
 
 
@@ -52,6 +52,15 @@ model_params = {
         "max": 25,
         "step": 1,
     },
+    
+    "cars_per_spawn": {
+        "type": "SliderInt",
+        "value": 1,
+        "label": "Coches por spawn",
+        "min": 1,
+        "max": 4,
+        "step": 1,
+    },
 }
 
 model = CityModel(model_params["N"])
@@ -60,9 +69,22 @@ space_component = make_space_component(
     agent_portrayal, draw_grid=False, post_process=post_process
 )
 
+# Crear las 3 gráficas usando make_plot_component
+chart_total_created = make_plot_component(
+    {"Total Creados": "blue"}
+)
+
+chart_active_cars = make_plot_component(
+    {"Coches Activos": "green"}
+)
+
+chart_arrived = make_plot_component(
+    {"Total Llegados": "orange"}
+)
+
 page = SolaraViz(
     model,
-    components=[space_component],
+    components=[space_component, chart_total_created, chart_active_cars, chart_arrived],
     model_params=model_params,
-    name="Random Model",
+    name="Traffic Simulation",
 )
