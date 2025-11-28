@@ -1,5 +1,6 @@
 from mesa import Model
 from mesa.discrete_space import OrthogonalMooreGrid
+from mesa.datacollection import DataCollector
 from traffic_base.agent import *
 import json
 import random
@@ -13,9 +14,11 @@ class CityModel(Model):
     Args:
         N: Number of agents in the simulation
         seed: Random seed for the model
+        spawn_interval: Steps between car spawns
+        cars_per_spawn: Number of cars to spawn each time
     """
 
-    def __init__(self, N=4, seed=42, spawn_interval=10):
+    def __init__(self, N=4, seed=42, spawn_interval=10, cars_per_spawn=1):
 
         super().__init__(seed=seed)
 
@@ -27,6 +30,7 @@ class CityModel(Model):
         self.destinations = []
         self.roads = []
         self.spawn_interval = spawn_interval
+        self.cars_per_spawn = cars_per_spawn
         self.next_spawn_step = spawn_interval
         self.total_cars_created = 0
         self.total_cars_arrived = 0
@@ -70,7 +74,16 @@ class CityModel(Model):
 
         print(f"Total de destinos cargados: {len(self.destinations)}")
         
-        # Crear los coches en las esquinas
+        # Crear DataCollector para las gráficas
+        self.datacollector = DataCollector(
+            model_reporters={
+                "Total Creados": lambda m: m.total_cars_created,
+                "Coches Activos": lambda m: sum(1 for agent in m.agents if isinstance(agent, Car)),
+                "Total Llegados": lambda m: m.total_cars_arrived,
+            }
+        )
+        
+        # Crear los coches iniciales
         self.create_cars()
         
         self.running = True
@@ -107,7 +120,7 @@ class CityModel(Model):
                             print(f"Road encontrado en {(x, y)} dirección: {direction}")
                             return (x, y)
         
-        print(f"  ⚠️ No se encontró road cerca de {corner}")
+        print(f"No se encontró road cerca de {corner}")
         return corner
 
     def create_cars(self):
@@ -136,28 +149,34 @@ class CityModel(Model):
             
             print(f"Coche {self.total_cars_created} creado en posición {position}")
     
-    def spawn_new_car(self):
-        """Crea un nuevo coche en una esquina aleatoria"""
+    def spawn_new_cars(self):
+        """Crea múltiples coches nuevos según cars_per_spawn"""
+        spawned = 0
         corners = self.get_corners()
-        corner = corners[self.total_cars_created % 4]
-        position = self.find_nearest_road(corner)
         
-        if not self.is_valid_road(position):
-            return False
+        for i in range(self.cars_per_spawn):
+            # Seleccionar esquina de forma cíclica
+            corner = corners[self.total_cars_created % 4]
+            position = self.find_nearest_road(corner)
+            
+            if not self.is_valid_road(position):
+                continue
+            
+            cell = self.grid[position]
+            
+            agents_in_cell = list(cell.agents)
+            if any(isinstance(agent, Car) for agent in agents_in_cell):
+                print(f"No se puede crear coche en {position}, posición ocupada")
+                continue
+            
+            car = Car(self, position)
+            car.cell = cell
+            self.total_cars_created += 1
+            spawned += 1
+            
+            print(f"Nuevo coche {self.total_cars_created} spawneado en posición {position}")
         
-        cell = self.grid[position]
-        
-        agents_in_cell = list(cell.agents)
-        if any(isinstance(agent, Car) for agent in agents_in_cell):
-            print(f"No se puede crear coche en {position}, posición ocupada")
-            return False
-        
-        car = Car(self, position)
-        car.cell = cell
-        self.total_cars_created += 1
-        
-        print(f"Nuevo coche {self.total_cars_created} spawneado en posición {position}")
-        return True
+        return spawned > 0
             
     def heuristic(self, pos1, pos2):
         """Calcula la distancia Manhattan"""
@@ -386,9 +405,12 @@ class CityModel(Model):
 
     def step(self):
         """Advance the model by one step."""
-        # Verificar si es momento de crear un nuevo coche
+        # Recolectar datos para las gráficas
+        self.datacollector.collect(self)
+        
+        # Verificar si es momento de crear nuevos coches
         if self.spawn_interval > 0 and self.steps >= self.next_spawn_step:
-            if self.spawn_new_car():
+            if self.spawn_new_cars():
                 self.next_spawn_step = self.steps + self.spawn_interval
         
         # Ejecutar step de Traffic_Lights
