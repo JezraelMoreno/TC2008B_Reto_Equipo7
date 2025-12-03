@@ -37,6 +37,7 @@ class CityModel(Model):
         self.total_cars_created = 0
         self.total_cars_arrived = 0
         self.gradas = []
+        obstacle_symbols = {"#", "0", "1", "2", "3", "4", "5", "6", "7"}
 
         # Load the map file
         map_path = base_path / map_file
@@ -58,7 +59,7 @@ class CityModel(Model):
 
                     cell = self.grid[(c, self.height - r - 1)]
 
-                    if col in ["v", "^", ">", "<"]:
+                    if col in ["v", "V", "^", ">", "<"]:
                         agent = Road(self, cell, dataDictionary[col])
                         self.roads.append(agent)
 
@@ -71,8 +72,9 @@ class CityModel(Model):
                         )
                         self.traffic_lights.append(agent)
 
-                    elif col == "#":
-                        agent = Obstacle(self, cell)
+                    elif col in obstacle_symbols:
+                        obstacle_type = dataDictionary.get(col, "Obstacle")
+                        agent = Obstacle(self, cell, obstacle_type)
 
                     elif col == "G":
                         agent = Gradas(self, cell)

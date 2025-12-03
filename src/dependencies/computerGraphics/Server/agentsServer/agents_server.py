@@ -36,7 +36,7 @@ app = Flask("Traffic example")
 cors = CORS(app, resources={r"/*": {"origins": ["http://localhost", "http://localhost:5173"]}})
 
 
-def _serialize_agents(agent_type, include_state=False, include_direction=False):
+def _serialize_agents(agent_type, include_state=False, include_direction=False, include_kind=False):
     """
     Recorre toda la grilla y devuelve una lista serializada de agentes del tipo
     solicitado. Se usa un ID estable por agente cuando es posible, de lo contrario
@@ -70,6 +70,9 @@ def _serialize_agents(agent_type, include_state=False, include_direction=False):
 
                 if include_direction:
                     agent_json["direction"] = getattr(agent, "direction", None)
+
+                if include_kind:
+                    agent_json["kind"] = getattr(agent, "kind", None)
 
                 serialized_agents.append(agent_json)
 
@@ -130,7 +133,7 @@ def getMap():
     try:
         roads = _serialize_agents(Road, include_direction=True)
         destinations = _serialize_agents(Destination)
-        obstacles = _serialize_agents(Obstacle)
+        obstacles = _serialize_agents(Obstacle, include_kind=True)
         gradas = _serialize_agents(Gradas)
         traffic_lights = _serialize_agents(Traffic_Light, include_state=True)
         cars = _serialize_agents(Car)

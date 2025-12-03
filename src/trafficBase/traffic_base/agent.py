@@ -293,16 +293,18 @@ class Obstacle(FixedAgent):
     """
     Obstacle agent. Just to add obstacles to the grid.
     """
-    def __init__(self, model, cell):
+    def __init__(self, model, cell, kind="Obstacle"):
         """
         Creates a new obstacle.
         
         Args:
             model: Model reference for the agent
             cell: The initial position of the agent
+            kind: Identifier to map to a specific obstacle model
         """
         super().__init__(model)
         self.cell = cell
+        self.kind = kind
 
 
 class Gradas(FixedAgent):

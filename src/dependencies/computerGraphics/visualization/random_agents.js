@@ -26,8 +26,11 @@ import {
 // Define the shader code, using GLSL 3.00
 import vsGLSL from '../assets/shaders/vs_color.glsl?raw';
 import fsGLSL from '../assets/shaders/fs_color.glsl?raw';
+import vsTexGLSL from '../assets/shaders/vs_color_tex.glsl?raw';
+import fsTexGLSL from '../assets/shaders/fs_color_tex.glsl?raw';
 
 const scene = new Scene3D();
+const textureCache = new Map();
 
 /*
 // Variable for the scene settings
@@ -44,6 +47,7 @@ const settings = {
 
 // Global variables
 let colorProgramInfo = undefined;
+let colorTextureProgramInfo = undefined;
 let gl = undefined;
 let baseCube = undefined;
 let setBaseShapeRef = undefined;
@@ -53,8 +57,9 @@ let lastUpdateTime = 0;
 let updating = false;
 
 const defaultCarScale = { x: 0.35, y: 0.35, z: 0.35 };
-const roadScale = { x: 0.5, y: 0.08, z: 0.5 };
+const defaultRoadScale = { x: 0.5, y: 0.08, z: 0.5 };
 const blockScale = { x: 0.5, y: 0.5, z: 0.5 };
+const emptyTileScale = { x: 0.5, y: 0.05, z: 0.5 };
 const lightScale = { x: 0.35, y: 0.8, z: 0.35 };
 
 const sunLight = {
@@ -63,6 +68,26 @@ const sunLight = {
 };
 
 const { roads, destinations, obstacles, gradas, trafficLights, cars } = mapElements;
+
+const getTexture = (glRef, url, options = {}) => {
+  if (!url) return null;
+  const cached = textureCache.get(url);
+  if (cached) return cached;
+  const texture = twgl.createTexture(glRef, { src: url, ...options });
+  textureCache.set(url, texture);
+  return texture;
+};
+
+function getRoadRotation(direction) {
+  const yawByDirection = {
+    Right: 90,
+    Left: -90,
+    Down: 180,
+    Up: 0,
+  };
+  const yaw = yawByDirection[direction] ?? 0;
+  return { x: 0, y: yaw, z: 0 };
+}
 
 
 // Main function is async to be able to make the requests
@@ -75,6 +100,7 @@ async function main() {
 
   // Prepare the program with the shaders
   colorProgramInfo = twgl.createProgramInfo(gl, [vsGLSL, fsGLSL]);
+  colorTextureProgramInfo = twgl.createProgramInfo(gl, [vsTexGLSL, fsTexGLSL]);
 
   // Initialize the agents model
   await initAgentsModel();
@@ -130,6 +156,8 @@ function setupObjects(scene, gl, programInfo) {
     object.scale = scale;
     object.vertexColorMix = baseShape.useVertexColors ? 1.0 : 0.0;
     object.offsetY = offsetY;
+    object.texture = baseShape.useTexture ? baseShape.texture : null;
+    object.useTexture = baseShape.useTexture ?? false;
     if (rotation) {
       object.rotDeg = { x: rotation.x || 0, y: rotation.y || 0, z: rotation.z || 0 };
       object.rotRad = {
@@ -143,20 +171,29 @@ function setupObjects(scene, gl, programInfo) {
     }
   };
 
-  const rallyKartModel = getModelo('rallyKart');
+  const carModel = getModelo('carSedan');
   let carBase = null;
   let carScale = defaultCarScale;
   let carOffsetY = 0;
   let carRotation = null;
-  if (rallyKartModel) {
+  if (carModel) {
     carBase = new Object3D(-4);
-    carBase.arrays = rallyKartModel.arrays;
-    carBase.bufferInfo = twgl.createBufferInfoFromArrays(gl, rallyKartModel.arrays);
-    carBase.vao = twgl.createVAOFromBufferInfo(gl, programInfo, carBase.bufferInfo);
-    carBase.useVertexColors = !rallyKartModel.color;
-    carScale = { x: rallyKartModel.escala, y: rallyKartModel.escala, z: rallyKartModel.escala };
-    carOffsetY = rallyKartModel.offsetY ?? 0;
-    carRotation = rallyKartModel.rotation ?? null;
+    carBase.arrays = carModel.arrays;
+    carBase.bufferInfo = twgl.createBufferInfoFromArrays(gl, carModel.arrays);
+    const carTexture = getTexture(gl, carModel.textureUrl, {
+      wrapS: gl.REPEAT,
+      wrapT: gl.REPEAT,
+      min: gl.LINEAR_MIPMAP_LINEAR,
+      mag: gl.LINEAR,
+    });
+    const carProgram = carTexture ? colorTextureProgramInfo : programInfo;
+    carBase.vao = twgl.createVAOFromBufferInfo(gl, carProgram, carBase.bufferInfo);
+    carBase.useVertexColors = !carModel.color && !carTexture;
+    carBase.useTexture = !!carTexture;
+    carBase.texture = carTexture;
+    carScale = { x: carModel.escala, y: carModel.escala, z: carModel.escala };
+    carOffsetY = carModel.offsetY ?? 0;
+    carRotation = carModel.rotation ?? null;
   }
 
   // Prepare traffic light model (S/s) if available
@@ -166,8 +203,17 @@ function setupObjects(scene, gl, programInfo) {
     trafficLightBase = new Object3D(-2);
     trafficLightBase.arrays = trafficLightModel.arrays;
     trafficLightBase.bufferInfo = twgl.createBufferInfoFromArrays(gl, trafficLightModel.arrays);
-    trafficLightBase.vao = twgl.createVAOFromBufferInfo(gl, programInfo, trafficLightBase.bufferInfo);
-    trafficLightBase.useVertexColors = true;
+    const trafficTexture = getTexture(gl, trafficLightModel.textureUrl, {
+      wrapS: gl.CLAMP_TO_EDGE,
+      wrapT: gl.CLAMP_TO_EDGE,
+      min: gl.LINEAR_MIPMAP_LINEAR,
+      mag: gl.LINEAR,
+    });
+    const trafficProgram = trafficTexture ? colorTextureProgramInfo : programInfo;
+    trafficLightBase.vao = twgl.createVAOFromBufferInfo(gl, trafficProgram, trafficLightBase.bufferInfo);
+    trafficLightBase.useVertexColors = !trafficLightModel.color && !trafficTexture;
+    trafficLightBase.useTexture = !!trafficTexture;
+    trafficLightBase.texture = trafficTexture;
   }
 
   // Preparar modelos de montañas para los obstáculos (#)
@@ -180,9 +226,38 @@ function setupObjects(scene, gl, programInfo) {
     base.useVertexColors = !model.color;
     return { model, base };
   });
+  const mountainBaseById = new Map(mountainBases.map((entry) => [entry.model.id, entry]));
   const mountainChoice = new Map();
 
   const roadColor = roads[0]?.color ?? [0.3, 0.3, 0.3, 1];
+  const roadModel = getModelo('roadStraight');
+  let roadBase = null;
+  let roadScale = { ...defaultRoadScale };
+  let roadOffsetY = 0;
+  if (roadModel) {
+    roadBase = new Object3D(-5);
+    roadBase.arrays = roadModel.arrays;
+    roadBase.bufferInfo = twgl.createBufferInfoFromArrays(gl, roadModel.arrays);
+    const roadTexture = getTexture(gl, roadModel.textureUrl, {
+      wrapS: gl.REPEAT,
+      wrapT: gl.REPEAT,
+      min: gl.LINEAR_MIPMAP_LINEAR,
+      mag: gl.LINEAR,
+    });
+    const roadProgram = roadTexture ? colorTextureProgramInfo : programInfo;
+    roadBase.vao = twgl.createVAOFromBufferInfo(gl, roadProgram, roadBase.bufferInfo);
+    roadBase.useVertexColors = !roadTexture;
+    roadBase.useTexture = !!roadTexture;
+    roadBase.texture = roadTexture;
+    const escala = roadModel.escala ?? defaultRoadScale.x;
+    const scaleOverride = roadModel.scale ?? {};
+    roadScale = {
+      x: scaleOverride.x ?? escala,
+      y: scaleOverride.y ?? escala,
+      z: scaleOverride.z ?? escala,
+    };
+    roadOffsetY = roadModel.offsetY ?? 0;
+  }
   const gradasModel = getModelo('bleachers');
   let gradasBase = null;
   if (gradasModel) {
@@ -194,7 +269,12 @@ function setupObjects(scene, gl, programInfo) {
   }
 
   roads.forEach((road) => {
-    setBaseShapeRef(road, roadScale);
+    const rotation = getRoadRotation(road.direction);
+    if (roadBase && roadModel) {
+      setBaseShapeRef(road, roadScale, roadBase, roadOffsetY, rotation);
+    } else {
+      setBaseShapeRef(road, defaultRoadScale, baseCube, 0, rotation);
+    }
     scene.addObject(road);
   });
   destinations.forEach((destination) => {
@@ -202,10 +282,25 @@ function setupObjects(scene, gl, programInfo) {
     scene.addObject(destination);
   });
   obstacles.forEach((obstacle) => {
+    const isEmptyTile = obstacle.kind === 'Empty';
+    if (isEmptyTile) {
+      setBaseShapeRef(obstacle, emptyTileScale, baseCube);
+      scene.addObject(obstacle);
+      return;
+    }
+
     if (mountainBases.length > 0) {
-      const cached = mountainChoice.get(obstacle.id);
-      const pick = cached ?? mountainBases[Math.floor(Math.random() * mountainBases.length)];
+      let pick = null;
+      if (obstacle.kind && mountainBaseById.has(obstacle.kind)) {
+        pick = mountainBaseById.get(obstacle.kind);
+      } else {
+        pick = mountainChoice.get(obstacle.id);
+      }
+      if (!pick) {
+        pick = mountainBases[Math.floor(Math.random() * mountainBases.length)];
+      }
       mountainChoice.set(obstacle.id, pick);
+
       const { model, base } = pick;
       const scale = { x: model.escala, y: model.escala, z: model.escala };
       const offsetY = model.offsetY ?? 0;
@@ -231,7 +326,11 @@ function setupObjects(scene, gl, programInfo) {
     // Poner un tile de carretera debajo del semáforo para evitar huecos visuales
     const roadTile = new Object3D(`road-tl-${trafficLight.id}`, trafficLight.posArray);
     roadTile.color = roadColor;
-    setBaseShapeRef(roadTile, roadScale);
+    if (roadBase && roadModel) {
+      setBaseShapeRef(roadTile, roadScale, roadBase, roadOffsetY);
+    } else {
+      setBaseShapeRef(roadTile, defaultRoadScale);
+    }
     scene.addObject(roadTile);
 
     if (trafficLightBase && trafficLightModel) {
@@ -310,16 +409,23 @@ function drawObject(gl, programInfo, object, viewProjectionMatrix, alpha) {
 
   const emissiveColor = object.emissive
     ? object.emissive
-    : (object.isTrafficLight ? (object.color ?? [1, 1, 1, 1]).slice(0, 3).map((c) => c * 0.9) : [0, 0, 0]);
+    : [0, 0, 0];
 
+  const useTexture = !!object.texture;
   // Model uniforms
   const objectUniforms = {
     u_worldViewProjection: wvpMat,
     u_worldInverseTranspose: worldInverseTranspose,
-    u_color: object.color ?? [1, 1, 1, 1],
-    u_vertexColorMix: object.vertexColorMix ?? 0,
     u_emissive: emissiveColor,
   };
+  if (useTexture) {
+    objectUniforms.u_texture = object.texture;
+  } else {
+    objectUniforms.u_color = object.color ?? [1, 1, 1, 1];
+    objectUniforms.u_vertexColorMix = object.vertexColorMix ?? 0;
+  }
+  objectUniforms.u_lightDirection = sunLight.direction;
+  objectUniforms.u_ambient = sunLight.ambient;
   twgl.setUniforms(programInfo, objectUniforms);
 
   gl.bindVertexArray(object.vao);
@@ -344,13 +450,11 @@ async function drawScene() {
   const viewProjectionMatrix = setupViewProjection(gl);
 
   // Draw the objects
-  gl.useProgram(colorProgramInfo.program);
-  twgl.setUniforms(colorProgramInfo, {
-    u_lightDirection: sunLight.direction,
-    u_ambient: sunLight.ambient,
-  });
   for (let object of scene.objects) {
-    drawObject(gl, colorProgramInfo, object, viewProjectionMatrix, alpha);
+    const useTexture = !!object.texture && !!colorTextureProgramInfo;
+    const programInfo = useTexture ? colorTextureProgramInfo : colorProgramInfo;
+    gl.useProgram(programInfo.program);
+    drawObject(gl, programInfo, object, viewProjectionMatrix, alpha);
   }
 
   // Update the scene after the elapsed duration

@@ -17,8 +17,8 @@ const DESTINATION_COLOR = [0.2, 0.6, 0.35, 1.0];
 const OBSTACLE_COLOR = [0.15, 0.15, 0.15, 1.0];
 const GRADAS_COLOR = [0.25, 0.25, 0.25, 1.0];
 const CAR_COLOR = [0.1, 0.5, 0.9, 1.0];
-const RED_LIGHT = [0.8, 0.1, 0.1, 1.0];
-const GREEN_LIGHT = [0.1, 0.7, 0.1, 1.0];
+const RED_LIGHT = [1.0, 1.0, 1.0, 1.0]; // Neutral to let texture show
+const GREEN_LIGHT = [1.0, 1.0, 1.0, 1.0];
 
 const mapElements = {
     roads: [],
@@ -62,6 +62,7 @@ function buildObject(raw, color) {
     const object = new Object3D(raw.id, [raw.x, raw.y, raw.z]);
     object.color = color;
     object.state = raw.state;
+    object.direction = raw.direction;
     return object;
 }
 
@@ -77,6 +78,7 @@ function refreshCollection(target, rawList, colorResolver, options = {}) {
         object.setPosition([raw.x, raw.y, raw.z]);
         object.color = colorResolver(raw, existing);
         object.state = raw.state;
+        object.direction = raw.direction ?? object.direction;
         if (onUpdate) {
             onUpdate(object, raw, existing);
         }
@@ -127,7 +129,12 @@ async function getMap() {
 
             refreshCollection(mapElements.roads, result.roads ?? [], () => ROAD_COLOR);
             refreshCollection(mapElements.destinations, result.destinations ?? [], () => DESTINATION_COLOR);
-            refreshCollection(mapElements.obstacles, result.obstacles ?? [], () => OBSTACLE_COLOR);
+            refreshCollection(mapElements.obstacles, result.obstacles ?? [], () => OBSTACLE_COLOR, {
+                onUpdate: (object, raw) => {
+                    object.kind = raw.kind;
+                    object.modelId = raw.kind;
+                },
+            });
             refreshCollection(mapElements.gradas, result.gradas ?? [], () => GRADAS_COLOR);
             refreshCollection(mapElements.trafficLights, result.traffic_lights ?? [], (raw) => trafficLightColor(raw.state));
             refreshCollection(mapElements.cars, result.cars ?? [], () => CAR_COLOR, {

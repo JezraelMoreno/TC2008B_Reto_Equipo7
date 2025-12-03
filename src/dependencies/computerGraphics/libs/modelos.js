@@ -5,10 +5,24 @@
 'use strict';
 
 import { loadObj, loadMtl } from './obj_loader';
+import citybitsTextureUrl from '../assets/modelos/calle/citybits_texture.png';
 
 // OBJ de carros / semaforos
 import trafficLightObj from '../assets/modelos/trafficLight/source/Semaforo.obj?raw';
 import trafficLightMtl from '../assets/modelos/trafficLight/source/Semaforo.mtl?raw';
+import roadStraightObj from '../assets/modelos/calle/road_straight.obj?raw';
+import roadStraightMtl from '../assets/modelos/calle/road_straight.mtl?raw';
+import trafficLightTextureUrl from '../assets/modelos/trafficLight/source/StopLight.jpg';
+import carSedanObj from '../assets/modelos/carro2/car_sedan.obj?raw';
+import carSedanMtl from '../assets/modelos/carro2/car_sedan.mtl?raw';
+import carSedanWheelFrontLeftObj from '../assets/modelos/carro2/car_sedan_wheel_front_left.obj?raw';
+import carSedanWheelFrontLeftMtl from '../assets/modelos/carro2/car_sedan_wheel_front_left.mtl?raw';
+import carSedanWheelFrontRightObj from '../assets/modelos/carro2/car_sedan_wheel_front_right.obj?raw';
+import carSedanWheelFrontRightMtl from '../assets/modelos/carro2/car_sedan_wheel_front_right.mtl?raw';
+import carSedanWheelRearLeftObj from '../assets/modelos/carro2/car_sedan_wheel_rear_left.obj?raw';
+import carSedanWheelRearLeftMtl from '../assets/modelos/carro2/car_sedan_wheel_rear_left.mtl?raw';
+import carSedanWheelRearRightObj from '../assets/modelos/carro2/car_sedan_wheel_rear_right.obj?raw';
+import carSedanWheelRearRightMtl from '../assets/modelos/carro2/car_sedan_wheel_rear_right.mtl?raw';
 
 // OBJ de montañas (decoración de obstáculos)
 import hill1Obj from '../assets/modelos/Montañas/obj/Hill_desert_001.obj?raw';
@@ -27,8 +41,26 @@ import mtnDesert6Obj from '../assets/modelos/Montañas/obj/Mountain_desert_006.o
 import mtnDesert6Mtl from '../assets/modelos/Montañas/obj/Mountain_desert_006.mtl?raw';
 import gradasObj from '../assets/modelos/gradas/bleachers_v1_L1.123c489e84b7-a282-451c-9689-6412d8ec0dac/gradas_mod.obj?raw';
 import gradasMtl from '../assets/modelos/gradas/bleachers_v1_L1.123c489e84b7-a282-451c-9689-6412d8ec0dac/gradas_mod.mtl?raw';
-import rallyKartObj from '../assets/modelos/carros/source/rallyKart.obj?raw';
-import rallyKartMtl from '../assets/modelos/carros/source/rallyKart.mtl?raw';
+
+// Constructor to merge multiple OBJ arrays into one mesh
+function combinarArrays(arraysList = []) {
+    const base = {
+        a_position: { numComponents: 3, data: [] },
+        a_color: { numComponents: 4, data: [] },
+        a_normal: { numComponents: 3, data: [] },
+        a_texCoord: { numComponents: 2, data: [] },
+    };
+
+    arraysList.forEach((arr) => {
+        if (!arr) return;
+        if (arr.a_position?.data) base.a_position.data.push(...arr.a_position.data);
+        if (arr.a_color?.data) base.a_color.data.push(...arr.a_color.data);
+        if (arr.a_normal?.data) base.a_normal.data.push(...arr.a_normal.data);
+        if (arr.a_texCoord?.data) base.a_texCoord.data.push(...arr.a_texCoord.data);
+    });
+
+    return base;
+}
 
 function centrarModelo(arrays) {
     const posiciones = arrays?.a_position?.data;
@@ -68,21 +100,33 @@ function prepararMontana(id, nombre, objRaw, mtlRaw, alturaObjetivo = 0.5) {
     const materials = loadMtl(mtlRaw);
     const { arrays, altura } = centrarModelo(loadObj(objRaw, materials));
     const escala = altura > 0 ? alturaObjetivo / altura : 0.0015;
+    const yLift = 0.08; // ligera elevación para que no queden hundidas
 
     return {
         id,
         nombre,
         arrays,
         escala,
-        offsetY: (altura * escala) / 2,
+        offsetY: (altura * escala) / 2 + yLift,
         color: [0.45, 0.4, 0.36, 1],
     };
 }
 
-function prepararCarro(id, nombre, objRaw, mtlRaw, alturaObjetivo = 0.42) {
+function prepararCarro(id, nombre, objRaw, mtlRaw, opciones = {}) {
     const materials = loadMtl(mtlRaw);
-    const { arrays, altura } = centrarModelo(loadObj(objRaw, materials));
-    const escala = altura > 0 ? alturaObjetivo / altura : 0.0025;
+    const arraysList = [loadObj(objRaw, materials)];
+
+    if (opciones.partes && opciones.partes.length > 0) {
+        opciones.partes.forEach((parte) => {
+            const parteMaterials = parte.compartirMateriales ? materials : loadMtl(parte.mtlRaw ?? mtlRaw);
+            arraysList.push(loadObj(parte.objRaw, parteMaterials));
+        });
+    }
+
+    const { arrays, altura } = centrarModelo(combinarArrays(arraysList));
+    const alturaObjetivo = opciones.alturaObjetivo ?? 0.42;
+    const escalaFallback = opciones.escalaFallback ?? 0.0025;
+    const escala = altura > 0 ? alturaObjetivo / altura : escalaFallback;
 
     return {
         id,
@@ -90,6 +134,23 @@ function prepararCarro(id, nombre, objRaw, mtlRaw, alturaObjetivo = 0.42) {
         arrays,
         escala,
         offsetY: (altura * escala) / 2,
+        rotation: opciones.rotation,
+        textureUrl: opciones.textureUrl,
+    };
+}
+
+function prepararRoad(id, nombre, objRaw, mtlRaw, escala = 0.5, textureUrl = null) {
+    const materials = loadMtl(mtlRaw);
+    const { arrays } = centrarModelo(loadObj(objRaw, materials));
+
+    return {
+        id,
+        nombre,
+        arrays,
+        escala,
+        scale: { x: escala, y: escala, z: escala },
+        offsetY: 0,
+        textureUrl,
     };
 }
 
@@ -113,8 +174,19 @@ const modelos = [
         arrays: trafficLightArrays,
         escala: escalaTraffic,
         offsetY: (alturaTraffic * escalaTraffic) / 2,
+        textureUrl: trafficLightTextureUrl,
+        rotation: { x: 0, y: 0, z: 90 },
     },
-    prepararCarro('rallyKart', 'Rally Kart', rallyKartObj, rallyKartMtl),
+    prepararCarro('carSedan', 'Carro sedán', carSedanObj, carSedanMtl, {
+        textureUrl: citybitsTextureUrl,
+        partes: [
+            { objRaw: carSedanWheelFrontLeftObj, mtlRaw: carSedanWheelFrontLeftMtl, compartirMateriales: true },
+            { objRaw: carSedanWheelFrontRightObj, mtlRaw: carSedanWheelFrontRightMtl, compartirMateriales: true },
+            { objRaw: carSedanWheelRearLeftObj, mtlRaw: carSedanWheelRearLeftMtl, compartirMateriales: true },
+            { objRaw: carSedanWheelRearRightObj, mtlRaw: carSedanWheelRearRightMtl, compartirMateriales: true },
+        ],
+    }),
+    prepararRoad('roadStraight', 'Camino recto', roadStraightObj, roadStraightMtl, 0.5, citybitsTextureUrl),
     {
         id: 'bleachers',
         nombre: 'Gradas',
