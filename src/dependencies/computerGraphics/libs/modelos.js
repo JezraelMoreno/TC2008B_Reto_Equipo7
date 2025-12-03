@@ -6,6 +6,7 @@
 
 import { loadObj, loadMtl } from './obj_loader';
 import citybitsTextureUrl from '../assets/modelos/calle/citybits_texture.png';
+import rockyTrailTextureUrl from '../assets/modelos/calle/rocky_trail_02_diff_1k.png';
 
 // OBJ de carros / semaforos
 import trafficLightObj from '../assets/modelos/trafficLight/source/Semaforo.obj?raw';
@@ -65,7 +66,7 @@ function combinarArrays(arraysList = []) {
 function centrarModelo(arrays) {
     const posiciones = arrays?.a_position?.data;
     if (!posiciones || posiciones.length < 3) {
-        return { arrays, altura: 0 };
+        return { arrays, altura: 0, dims: { width: 0, height: 0, depth: 0 } };
     }
 
     let min = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
@@ -93,21 +94,33 @@ function centrarModelo(arrays) {
     }
 
     const altura = max[1] - min[1];
-    return { arrays, altura };
+    const width = max[0] - min[0];
+    const depth = max[2] - min[2];
+    return { arrays, altura, dims: { width, height: altura, depth } };
 }
 
-function prepararMontana(id, nombre, objRaw, mtlRaw, alturaObjetivo = 0.5) {
+function prepararMontana(id, nombre, objRaw, mtlRaw, opciones = {}) {
     const materials = loadMtl(mtlRaw);
-    const { arrays, altura } = centrarModelo(loadObj(objRaw, materials));
-    const escala = altura > 0 ? alturaObjetivo / altura : 0.0015;
+    const { arrays, altura, dims } = centrarModelo(loadObj(objRaw, materials));
+
+    const alturaObjetivo = opciones.alturaObjetivo ?? 0.5;
+    const anchoObjetivo = opciones.anchoObjetivo;
+    const largoObjetivo = opciones.largoObjetivo;
+    const escalaFallback = opciones.escalaFallback ?? 0.0015;
+
+    const escalaY = altura > 0 ? alturaObjetivo / altura : escalaFallback;
+    const escalaX = anchoObjetivo && dims.width > 0 ? anchoObjetivo / dims.width : escalaY;
+    const escalaZ = largoObjetivo && dims.depth > 0 ? largoObjetivo / dims.depth : escalaY;
+    const scale = { x: escalaX, y: escalaY, z: escalaZ };
     const yLift = 0.08; // ligera elevación para que no queden hundidas
 
     return {
         id,
         nombre,
         arrays,
-        escala,
-        offsetY: (altura * escala) / 2 + yLift,
+        escala: escalaY,
+        scale,
+        offsetY: (altura * escalaY) / 2 + yLift,
         color: [0.45, 0.4, 0.36, 1],
     };
 }
@@ -166,6 +179,11 @@ const { arrays: gradasArrays, altura: alturaGradas } = centrarModelo(loadObj(gra
 const escalaGradas = 4;
 const rotacionGradas = { x: -90, y: 0, z: 0 };
 
+// Configuración por tipo para montañas (ajusta altura/ancho/largo por ID)
+const mountainScaleOverrides = {
+    mountainHill2: { alturaObjetivo: 0.9 },
+};
+
 // Arreglo de modelos listos para ser consumidos por los objetos de la escena
 const modelos = [
     {
@@ -186,7 +204,7 @@ const modelos = [
             { objRaw: carSedanWheelRearRightObj, mtlRaw: carSedanWheelRearRightMtl, compartirMateriales: true },
         ],
     }),
-    prepararRoad('roadStraight', 'Camino recto', roadStraightObj, roadStraightMtl, 0.5, citybitsTextureUrl),
+    prepararRoad('roadStraight', 'Camino recto', roadStraightObj, roadStraightMtl, 0.5, rockyTrailTextureUrl),
     {
         id: 'bleachers',
         nombre: 'Gradas',
@@ -204,7 +222,9 @@ const modelos = [
         { id: 'mountainDesert2', nombre: 'Montaña desierto 2', obj: mtnDesert2Obj, mtl: mtnDesert2Mtl },
         { id: 'mountainDesert3', nombre: 'Montaña desierto 3', obj: mtnDesert3Obj, mtl: mtnDesert3Mtl },
         { id: 'mountainDesert6', nombre: 'Montaña desierto 6', obj: mtnDesert6Obj, mtl: mtnDesert6Mtl },
-    ].map(({ id, nombre, obj, mtl }) => prepararMontana(id, nombre, obj, mtl)),
+    ].map(({ id, nombre, obj, mtl }) =>
+        prepararMontana(id, nombre, obj, mtl, mountainScaleOverrides[id] ?? {})
+    ),
 ];
 
 // Devuelve un modelo por su identificador

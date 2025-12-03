@@ -36,7 +36,7 @@ const mapMetadata = {
 };
 
 const initData = {
-    mapFile: "2022_base.txt",
+    mapFile: "2025_base.txt",
     NAgents: 0
 };
 

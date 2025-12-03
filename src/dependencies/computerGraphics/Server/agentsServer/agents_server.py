@@ -28,7 +28,7 @@ from traffic_base.agent import Car, Traffic_Light, Road, Destination, Obstacle, 
 # Model defaults
 cityModel = None
 currentStep = 0
-default_map = "2022_base.txt"
+default_map = "2025_base.txt"
 
 
 # This application will be used to interact with WebGL

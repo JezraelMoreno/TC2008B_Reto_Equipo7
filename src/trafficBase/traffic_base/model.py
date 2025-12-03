@@ -16,7 +16,7 @@ class CityModel(Model):
         seed: Random seed for the model
     """
 
-    def __init__(self, N=4, seed=42, spawn_interval=10, map_file="2024_base.txt"):
+    def __init__(self, N=4, seed=42, spawn_interval=10, map_file="2025_base.txt"):
 
         super().__init__(seed=seed)
 

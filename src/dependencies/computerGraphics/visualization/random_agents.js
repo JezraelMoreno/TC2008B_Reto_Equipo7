@@ -302,7 +302,7 @@ function setupObjects(scene, gl, programInfo) {
       mountainChoice.set(obstacle.id, pick);
 
       const { model, base } = pick;
-      const scale = { x: model.escala, y: model.escala, z: model.escala };
+      const scale = model.scale ?? { x: model.escala, y: model.escala, z: model.escala };
       const offsetY = model.offsetY ?? 0;
       obstacle.color = model.color ?? obstacle.color;
       setBaseShapeRef(obstacle, scale, base, offsetY);
