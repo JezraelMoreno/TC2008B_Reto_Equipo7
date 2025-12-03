@@ -3,8 +3,18 @@
     "<" : "Left",
     "S" : 15,
     "s" : 7,
+    "G" : "Gradas",
     "#" : "Obstacle",
+    "0" : "Empty",
+    "1" : "mountainHill1",
+    "2" : "mountainHill2",
+    "3" : "mountainHill5",
+    "4" : "mountainDesert1",
+    "5" : "mountainDesert2",
+    "6" : "mountainDesert3",
+    "7" : "mountainDesert6",
     "v" : "Down",
+    "V" : "Down",
     "^" : "Up",
     "D" : "Destination"
 }

@@ -7,7 +7,7 @@ class Car(CellAgent):
     RESPETA las direcciones del Road con flexibilidad.
     Se elimina al llegar a su destino.
     """
-    def __init__(self, model, corner_position, destination=None):
+    def __init__(self, model, corner_position, destination=None, car_id=None):
         """
         Creates a new car agent.
         Args:
@@ -16,6 +16,8 @@ class Car(CellAgent):
             destination: The destination of the agent, selected randomly if None
         """
         super().__init__(model)
+        # ID estable para poder rastrear el coche desde la visualización
+        self.unique_id = car_id if car_id is not None else id(self)
         self.corner_position = corner_position
         self.destination = destination or self.select_random_destination()
         self.path = []
@@ -86,7 +88,7 @@ class Car(CellAgent):
             return True
         
         # Verificar si hay un obstáculo
-        if any(isinstance(agent, Obstacle) for agent in agents_in_cell):
+        if any(isinstance(agent, (Obstacle, Gradas)) for agent in agents_in_cell):
             return False
         
         # Verificar semáforo en rojo
@@ -291,14 +293,25 @@ class Obstacle(FixedAgent):
     """
     Obstacle agent. Just to add obstacles to the grid.
     """
-    def __init__(self, model, cell):
+    def __init__(self, model, cell, kind="Obstacle"):
         """
         Creates a new obstacle.
         
         Args:
             model: Model reference for the agent
             cell: The initial position of the agent
+            kind: Identifier to map to a specific obstacle model
         """
+        super().__init__(model)
+        self.cell = cell
+        self.kind = kind
+
+
+class Gradas(FixedAgent):
+    """
+    Bleachers/gradas agent. Acts as an obstacle but keeps its own type for visualización.
+    """
+    def __init__(self, model, cell):
         super().__init__(model)
         self.cell = cell
 

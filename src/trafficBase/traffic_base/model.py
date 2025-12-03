@@ -2,6 +2,7 @@ from mesa import Model
 from mesa.discrete_space import OrthogonalMooreGrid
 from mesa.datacollection import DataCollector
 from traffic_base.agent import *
+from pathlib import Path
 import json
 import random
 import math
@@ -18,12 +19,17 @@ class CityModel(Model):
         cars_per_spawn: Number of cars to spawn each time
     """
 
-    def __init__(self, N=4, seed=42, spawn_interval=10, cars_per_spawn=1):
+    def __init__(self, N=4, seed=42, spawn_interval=10, cars_per_spawn=1, map_file="2025_base.txt"):
 
         super().__init__(seed=seed)
 
         # Load the map dictionary
-        dataDictionary = json.load(open("city_files/mapDictionary.json"))
+        base_path = Path(__file__).resolve().parents[1] / "city_files"
+        dictionary_path = base_path / "mapDictionary.json"
+        if not dictionary_path.exists():
+            raise FileNotFoundError(f"No se encontró el diccionario del mapa en {dictionary_path}")
+
+        dataDictionary = json.loads(dictionary_path.read_text())
 
         self.num_agents = N
         self.traffic_lights = []
@@ -34,9 +40,15 @@ class CityModel(Model):
         self.next_spawn_step = spawn_interval
         self.total_cars_created = 0
         self.total_cars_arrived = 0
+        self.gradas = []
+        obstacle_symbols = {"#", "0", "1", "2", "3", "4", "5", "6", "7"}
 
         # Load the map file
-        with open("city_files/2024_base.txt") as baseFile:
+        map_path = base_path / map_file
+        if not map_path.exists():
+            raise FileNotFoundError(f"No se encontró el archivo de mapa {map_path}")
+
+        with open(map_path) as baseFile:
             lines = baseFile.readlines()
             self.width = len(lines[0].strip())
             self.height = len(lines)
@@ -51,7 +63,7 @@ class CityModel(Model):
 
                     cell = self.grid[(c, self.height - r - 1)]
 
-                    if col in ["v", "^", ">", "<"]:
+                    if col in ["v", "V", "^", ">", "<"]:
                         agent = Road(self, cell, dataDictionary[col])
                         self.roads.append(agent)
 
@@ -64,8 +76,13 @@ class CityModel(Model):
                         )
                         self.traffic_lights.append(agent)
 
-                    elif col == "#":
-                        agent = Obstacle(self, cell)
+                    elif col in obstacle_symbols:
+                        obstacle_type = dataDictionary.get(col, "Obstacle")
+                        agent = Obstacle(self, cell, obstacle_type)
+
+                    elif col == "G":
+                        agent = Gradas(self, cell)
+                        self.gradas.append(agent)
 
                     elif col == "D":
                         agent = Destination(self, cell)
@@ -143,7 +160,7 @@ class CityModel(Model):
             
             cell = self.grid[position]
             
-            car = Car(self, position)
+            car = Car(self, position, car_id=self.total_cars_created + 1)
             car.cell = cell
             self.total_cars_created += 1
             
@@ -156,6 +173,25 @@ class CityModel(Model):
         """
         spawned = 0
         corners = self.get_corners()
+        corner = corners[self.total_cars_created % 4]
+        position = self.find_nearest_road(corner)
+        
+        if not self.is_valid_road(position):
+            return False
+        
+        cell = self.grid[position]
+        
+        agents_in_cell = list(cell.agents)
+        if any(isinstance(agent, Car) for agent in agents_in_cell):
+            print(f"No se puede crear coche en {position}, posición ocupada")
+            return False
+        
+        car = Car(self, position, car_id=self.total_cars_created + 1)
+        car.cell = cell
+        self.total_cars_created += 1
+        
+        print(f"Nuevo coche {self.total_cars_created} spawneado en posición {position}")
+        return True
         
         for i in range(self.cars_per_spawn):
             # Seleccionar esquina de forma cíclica
@@ -237,7 +273,7 @@ class CityModel(Model):
         cell = self.grid[pos]
         agents_in_cell = list(cell.agents)
         
-        if any(isinstance(agent, Obstacle) for agent in agents_in_cell):
+        if any(isinstance(agent, (Obstacle, Gradas)) for agent in agents_in_cell):
             return False
         
         return any(isinstance(agent, (Road, Traffic_Light, Destination)) 
@@ -476,4 +512,6 @@ class CityModel(Model):
         # Imprimir estadísticas cada 50 steps
         if self.steps % 50 == 0:
             active_cars = sum(1 for agent in self.agents if isinstance(agent, Car))
+            print(f"\n Step {self.steps} - Coches activos: {active_cars} | Creados: {self.total_cars_created} | Llegaron: {self.total_cars_arrived}")
+
             print(f"\nStep {self.steps} - Coches activos: {active_cars} | Creados: {self.total_cars_created} | Llegaron: {self.total_cars_arrived}")

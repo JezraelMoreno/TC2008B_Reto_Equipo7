@@ -29,6 +29,9 @@ def agent_portrayal(agent):
     if isinstance(agent, Obstacle):
         portrayal.color = "#555"
 
+    if isinstance(agent, Gradas):
+        portrayal.color = "#777"
+
     return portrayal
 
 
