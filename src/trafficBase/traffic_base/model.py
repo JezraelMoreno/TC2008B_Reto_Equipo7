@@ -150,7 +150,10 @@ class CityModel(Model):
             print(f"Coche {self.total_cars_created} creado en posición {position}")
     
     def spawn_new_cars(self):
-        """Crea múltiples coches nuevos según cars_per_spawn"""
+        """
+        Crea múltiples coches nuevos según cars_per_spawn.
+        Retorna True si se creó al menos un coche, False si todas las esquinas están ocupadas.
+        """
         spawned = 0
         corners = self.get_corners()
         
@@ -167,7 +170,21 @@ class CityModel(Model):
             agents_in_cell = list(cell.agents)
             if any(isinstance(agent, Car) for agent in agents_in_cell):
                 print(f"No se puede crear coche en {position}, posición ocupada")
-                continue
+                print("\nSIMULACION TERMINADA: No se puede crear coche en esquina ocupada")
+                print(f"Estadisticas finales:")
+                print(f"   - Total coches creados: {self.total_cars_created}")
+                print(f"   - Total coches que llegaron: {self.total_cars_arrived}")
+                active_cars = sum(1 for agent in self.agents if isinstance(agent, Car))
+                print(f"   - Coches activos antes de eliminar: {active_cars}")
+                
+                # Eliminar todos los coches activos
+                cars_to_remove = [agent for agent in self.agents if isinstance(agent, Car)]
+                for car in cars_to_remove:
+                    car.remove()
+                
+                print(f"   - Todos los coches han sido eliminados")
+                self.running = False
+                return False
             
             car = Car(self, position)
             car.cell = cell
@@ -175,6 +192,36 @@ class CityModel(Model):
             spawned += 1
             
             print(f"Nuevo coche {self.total_cars_created} spawneado en posición {position}")
+        
+        # Si ningún coche se pudo crear, verificar si todas las esquinas están ocupadas
+        if spawned == 0:
+            # Verificar todas las esquinas
+            all_corners_occupied = True
+            for corner in corners:
+                position = self.find_nearest_road(corner)
+                if self.is_valid_road(position):
+                    cell = self.grid[position]
+                    agents_in_cell = list(cell.agents)
+                    if not any(isinstance(agent, Car) for agent in agents_in_cell):
+                        all_corners_occupied = False
+                        break
+            
+            if all_corners_occupied:
+                print("\nSIMULACION TERMINADA: Todas las esquinas están ocupadas")
+                print(f"Estadisticas finales:")
+                print(f"   - Total coches creados: {self.total_cars_created}")
+                print(f"   - Total coches que llegaron: {self.total_cars_arrived}")
+                active_cars = sum(1 for agent in self.agents if isinstance(agent, Car))
+                print(f"   - Coches activos: {active_cars}")
+                
+                # Eliminar todos los coches activos
+                cars_to_remove = [agent for agent in self.agents if isinstance(agent, Car)]
+                for car in cars_to_remove:
+                    car.remove()
+                
+                print(f"   - Todos los coches han sido eliminados")
+                self.running = False
+                return False
         
         return spawned > 0
             
@@ -324,7 +371,7 @@ class CityModel(Model):
         if start == end:
             return [end]
         
-        print(f"\n🔍 PATHFINDING: {start} -> {end}")
+        print(f"\nPATHFINDING: {start} -> {end}")
         
         open_set = [(0, start)]
         came_from = {}
@@ -410,8 +457,11 @@ class CityModel(Model):
         
         # Verificar si es momento de crear nuevos coches
         if self.spawn_interval > 0 and self.steps >= self.next_spawn_step:
-            if self.spawn_new_cars():
+            spawn_result = self.spawn_new_cars()
+            if spawn_result:
                 self.next_spawn_step = self.steps + self.spawn_interval
+            # Si spawn_result es False, significa que todas las esquinas están ocupadas
+            # y self.running ya fue puesto en False en spawn_new_cars()
         
         # Ejecutar step de Traffic_Lights
         for agent in self.traffic_lights:
@@ -426,4 +476,4 @@ class CityModel(Model):
         # Imprimir estadísticas cada 50 steps
         if self.steps % 50 == 0:
             active_cars = sum(1 for agent in self.agents if isinstance(agent, Car))
-            print(f"\n📊 Step {self.steps} - Coches activos: {active_cars} | Creados: {self.total_cars_created} | Llegaron: {self.total_cars_arrived}")
+            print(f"\nStep {self.steps} - Coches activos: {active_cars} | Creados: {self.total_cars_created} | Llegaron: {self.total_cars_arrived}")
