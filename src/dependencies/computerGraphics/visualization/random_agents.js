@@ -89,6 +89,7 @@ const uiParams = {
   seed: initData.seed ?? 42,
   spawnInterval: initData.spawn_interval ?? 10,
   carsPerSpawn: initData.cars_per_spawn ?? 1,
+  updateSpeedMs: 250,
 };
 let gui = null;
 
@@ -269,6 +270,15 @@ const emptyLights = {
   count: 0,
 };
 
+function resetMapCollections() {
+  mapElements.roads.length = 0;
+  mapElements.destinations.length = 0;
+  mapElements.obstacles.length = 0;
+  mapElements.gradas.length = 0;
+  mapElements.trafficLights.length = 0;
+  mapElements.cars.length = 0;
+}
+
 async function initializeSimulation(overrides = {}) {
   updating = true;
   try {
@@ -282,11 +292,12 @@ async function initializeSimulation(overrides = {}) {
     if (!initResult) {
       throw new Error('No se pudo inicializar el modelo con los parámetros seleccionados');
     }
+    resetMapCollections();
     await getMap();
     scene.objects = [];
     setupScene();
     setupObjects(scene, gl, colorProgramInfo);
-    stepDuration = 250;
+    stepDuration = Math.max(30, overrides.updateSpeedMs ?? uiParams.updateSpeedMs);
     lastUpdateTime = performance.now();
     Object.assign(uiParams, {
       seed: payload.seed,
@@ -616,12 +627,15 @@ function setupObjects(scene, gl, programInfo) {
   trafficLights.forEach((trafficLight) => {
     trafficLight.isTrafficLight = true;
     // Poner un tile de carretera debajo del semáforo para evitar huecos visuales
-    const roadTile = new Object3D(`road-tl-${trafficLight.id}`, trafficLight.posArray);
+    const basePos = [trafficLight.position.x, trafficLight.position.y, trafficLight.position.z];
+    const roadTile = new Object3D(`road-tl-${trafficLight.id}`, basePos);
     roadTile.color = roadColor;
+    // Offset fijo para que no cambie al mover sliders
+    const loweredTileOffset = -0.04;
     if (roadBase && roadModel) {
-      setBaseShapeRef(roadTile, roadScale, roadBase, roadOffsetY);
+      setBaseShapeRef(roadTile, roadScale, roadBase, loweredTileOffset);
     } else {
-      setBaseShapeRef(roadTile, defaultRoadScale);
+      setBaseShapeRef(roadTile, defaultRoadScale, baseCube, loweredTileOffset);
     }
     scene.addObject(roadTile);
 
@@ -804,7 +818,8 @@ async function drawScene() {
       const after = performance.now();
       const observed = after - lastUpdateTime;
       const clamped = Math.max(80, Math.min(1200, observed));
-      stepDuration = 0.7 * stepDuration + 0.3 * clamped;
+      const desired = Math.max(30, uiParams.updateSpeedMs);
+      stepDuration = 0.5 * desired + 0.5 * (0.7 * stepDuration + 0.3 * clamped);
       lastUpdateTime = after;
     } catch (error) {
       console.error(error);
@@ -854,12 +869,21 @@ function setupUI() {
     .name('Coches por spawn')
     .onFinishChange((value) => { uiParams.carsPerSpawn = Math.round(value); });
 
+  gui.add(uiParams, 'updateSpeedMs', 80, 1200, 10)
+    .name('Update speed (ms)')
+    .onFinishChange((value) => {
+      uiParams.updateSpeedMs = Math.max(30, Math.round(value));
+      stepDuration = uiParams.updateSpeedMs;
+      lastUpdateTime = performance.now();
+    });
+
   const actions = {
     aplicar: async () => {
       await initializeSimulation({
         seed: uiParams.seed,
         spawn_interval: uiParams.spawnInterval,
         cars_per_spawn: uiParams.carsPerSpawn,
+        updateSpeedMs: uiParams.updateSpeedMs,
       });
     },
   };
