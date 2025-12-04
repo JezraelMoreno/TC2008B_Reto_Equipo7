@@ -44,6 +44,8 @@ function loadObj(objString, materials = {}) {
     const positions = [];
     const texcoords = [];
     const normals = [];
+    let minPos = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
+    let maxPos = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
 
     // Current material color (fallback white with full alpha)
     let currentColor = [1, 1, 1, 1];
@@ -52,6 +54,15 @@ function loadObj(objString, materials = {}) {
     const resolveIndex = (value, arrayLength) => {
         const index = parseInt(value, 10);
         return index >= 0 ? index - 1 : arrayLength + index;
+    };
+
+    const computeTexCoord = (position) => {
+        if (!position) return [0, 0];
+        const spanX = maxPos[0] - minPos[0] || 1;
+        const spanZ = maxPos[2] - minPos[2] || 1;
+        const u = (position[0] - minPos[0]) / spanX;
+        const v = (position[2] - minPos[2]) / spanZ;
+        return [u, v];
     };
 
     const processVertex = (vertex) => {
@@ -70,7 +81,8 @@ function loadObj(objString, materials = {}) {
             const tex = texcoords[texIndex] || [0, 0];
             arrays.a_texCoord.data.push(tex[0], tex[1]);
         } else {
-            arrays.a_texCoord.data.push(0, 0);
+            const [u, v] = computeTexCoord(position);
+            arrays.a_texCoord.data.push(u, v);
         }
 
         // Normals (optional)
@@ -99,6 +111,16 @@ function loadObj(objString, materials = {}) {
                 const position = parts.slice(1, 4).map(Number);
                 if (position.length === 3) {
                     positions.push(position);
+                    minPos = [
+                        Math.min(minPos[0], position[0]),
+                        Math.min(minPos[1], position[1]),
+                        Math.min(minPos[2], position[2]),
+                    ];
+                    maxPos = [
+                        Math.max(maxPos[0], position[0]),
+                        Math.max(maxPos[1], position[1]),
+                        Math.max(maxPos[2], position[2]),
+                    ];
                 }
                 break;
             }
@@ -173,6 +195,7 @@ function loadMtl(mtlString) {
                     ks: [0, 0, 0],
                     ns: 0,
                     d: 1,
+                    mapKd: null,
                 };
                 materials[parts[1]] = current;
                 break;
@@ -191,6 +214,9 @@ function loadMtl(mtlString) {
             case 'd':
             case 'Tr':
                 if (current) current.d = Number(parts[1]);
+                break;
+            case 'map_Kd':
+                if (current) current.mapKd = parts.slice(1).join(' ');
                 break;
             default:
                 // Ignore the rest

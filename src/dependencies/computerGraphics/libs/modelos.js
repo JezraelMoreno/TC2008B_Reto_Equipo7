@@ -7,6 +7,7 @@
 import { loadObj, loadMtl } from './obj_loader';
 import citybitsTextureUrl from '../assets/modelos/calle/citybits_texture.png';
 import rockyTrailTextureUrl from '../assets/modelos/calle/rocky_trail_02_diff_1k.png';
+import mountainTextureUrl from '../assets/modelos/Montañas/obj/6_rocktext.jpg';
 
 // OBJ de carros / semaforos
 import trafficLightObj from '../assets/modelos/trafficLight/source/Semaforo.obj?raw';
@@ -38,10 +39,27 @@ import mtnDesert2Obj from '../assets/modelos/Montañas/obj/Mountain_desert_002.o
 import mtnDesert2Mtl from '../assets/modelos/Montañas/obj/Mountain_desert_002.mtl?raw';
 import mtnDesert3Obj from '../assets/modelos/Montañas/obj/Mountain_desert_003.obj?raw';
 import mtnDesert3Mtl from '../assets/modelos/Montañas/obj/Mountain_desert_003.mtl?raw';
+import mtnDesert4Obj from '../assets/modelos/Montañas/obj/Mountain_desert_004.obj?raw';
+import mtnDesert4Mtl from '../assets/modelos/Montañas/obj/Mountain_desert_004.mtl?raw';
+import mtnDesert5Obj from '../assets/modelos/Montañas/obj/Mountain_desert_005.obj?raw';
+import mtnDesert5Mtl from '../assets/modelos/Montañas/obj/Mountain_desert_005.mtl?raw';
 import mtnDesert6Obj from '../assets/modelos/Montañas/obj/Mountain_desert_006.obj?raw';
 import mtnDesert6Mtl from '../assets/modelos/Montañas/obj/Mountain_desert_006.mtl?raw';
+import mtnDesert7Obj from '../assets/modelos/Montañas/obj/Mountain_desert_007.obj?raw';
+import mtnDesert7Mtl from '../assets/modelos/Montañas/obj/Mountain_desert_007.mtl?raw';
+import mtnDesert8Obj from '../assets/modelos/Montañas/obj/Mountain_desert_008.obj?raw';
+import mtnDesert8Mtl from '../assets/modelos/Montañas/obj/Mountain_desert_008.mtl?raw';
+import mtnDesert9Obj from '../assets/modelos/Montañas/obj/Mountain_desert_009.obj?raw';
+import mtnDesert9Mtl from '../assets/modelos/Montañas/obj/Mountain_desert_009.mtl?raw';
 import gradasObj from '../assets/modelos/gradas/bleachers_v1_L1.123c489e84b7-a282-451c-9689-6412d8ec0dac/gradas_mod.obj?raw';
 import gradasMtl from '../assets/modelos/gradas/bleachers_v1_L1.123c489e84b7-a282-451c-9689-6412d8ec0dac/gradas_mod.mtl?raw';
+import destinoObj from '../assets/modelos/Destinos/destino.obj?raw';
+import destinoMtl from '../assets/modelos/Destinos/destino.mtl?raw';
+import destinoTextureUrl from '../assets/modelos/Destinos/6_rocktext.jpg.png';
+import destinoLavaTextureUrl from '../assets/modelos/Destinos/lava.png';
+import tipoCeroObj from '../assets/modelos/Montañas/obj/Tipocero.obj?raw';
+import tipoCeroMtl from '../assets/modelos/Montañas/obj/Tipocero.mtl?raw';
+import tipoCeroTextureUrl from '../assets/modelos/Montañas/obj/6_rocktext.jpg.png';
 
 // Constructor to merge multiple OBJ arrays into one mesh
 function combinarArrays(arraysList = []) {
@@ -102,6 +120,7 @@ function centrarModelo(arrays) {
 function prepararMontana(id, nombre, objRaw, mtlRaw, opciones = {}) {
     const materials = loadMtl(mtlRaw);
     const { arrays, altura, dims } = centrarModelo(loadObj(objRaw, materials));
+    const textureUrl = opciones.textureUrl ?? mountainTextureUrl;
 
     const alturaObjetivo = opciones.alturaObjetivo ?? 0.5;
     const anchoObjetivo = opciones.anchoObjetivo;
@@ -121,7 +140,8 @@ function prepararMontana(id, nombre, objRaw, mtlRaw, opciones = {}) {
         escala: escalaY,
         scale,
         offsetY: (altura * escalaY) / 2 + yLift,
-        color: [0.45, 0.4, 0.36, 1],
+        color: opciones.color ?? [0.45, 0.4, 0.36, 1],
+        textureUrl,
     };
 }
 
@@ -167,6 +187,60 @@ function prepararRoad(id, nombre, objRaw, mtlRaw, escala = 0.5, textureUrl = nul
     };
 }
 
+function prepararDestino(id, nombre, objRaw, mtlRaw, opciones = {}) {
+    const materials = loadMtl(mtlRaw);
+    const { arrays, altura } = centrarModelo(loadObj(objRaw, materials));
+    const escala = opciones.escala ?? 0.55;
+    const scale = opciones.scale ?? { x: escala, y: escala, z: escala };
+    const offsetY = opciones.offsetY ?? (altura * scale.y) / 2;
+
+    // Seleccionar la textura declarada en el MTL (primer map_Kd que tengamos importado)
+    const mapKds = Object.values(materials)
+        .map((mat) => mat?.mapKd)
+        .filter(Boolean);
+    const textureLookup = {
+        '6_rocktext.jpg.png': destinoTextureUrl,
+        'lava.png': destinoLavaTextureUrl,
+    };
+    const textureUrl = mapKds.map((name) => textureLookup[name]).find(Boolean)
+        ?? opciones.textureUrl
+        ?? null;
+
+    return {
+        id,
+        nombre,
+        arrays,
+        escala: scale.y,
+        scale,
+        offsetY,
+        textureUrl,
+        color: opciones.color,
+        emissive: opciones.emissive ?? [1.0, 0.9, 0.8],
+    };
+}
+
+function prepararModeloPlano(id, nombre, objRaw, mtlRaw, opciones = {}) {
+    const materials = loadMtl(mtlRaw);
+    const { arrays, altura } = centrarModelo(loadObj(objRaw, materials));
+    const escala = opciones.escala ?? 0.5;
+    const scale = opciones.scale ?? { x: escala, y: escala, z: escala };
+    const offsetY = opciones.offsetY ?? (altura * scale.y) / 2;
+    // Resolver textura desde map_Kd si existe
+    const mapKds = Object.values(materials).map((mat) => mat?.mapKd).filter(Boolean);
+    const textureUrl = mapKds.length > 0 ? opciones.textureMap?.[mapKds[0]] ?? opciones.textureUrl ?? null : opciones.textureUrl ?? null;
+
+    return {
+        id,
+        nombre,
+        arrays,
+        escala: scale.y,
+        scale,
+        offsetY,
+        textureUrl,
+        color: opciones.color,
+    };
+}
+
 // Cargar materiales para aplicar colores del MTL
 const materialsTraffic = loadMtl(trafficLightMtl);
 
@@ -181,7 +255,18 @@ const rotacionGradas = { x: -90, y: 0, z: 0 };
 
 // Configuración por tipo para montañas (ajusta altura/ancho/largo por ID)
 const mountainScaleOverrides = {
-    mountainHill2: { alturaObjetivo: 0.9 },
+    mountainHill1: { alturaObjetivo: 6, anchoObjetivo: 3, largoObjetivo: 3 },
+    mountainHill2: { alturaObjetivo: 5, anchoObjetivo: 3, largoObjetivo: 3 },
+    mountainHill5: { alturaObjetivo: 5, anchoObjetivo: 1, largoObjetivo: 1 },
+    mountainDesert1: { alturaObjetivo: 4, anchoObjetivo: 1, largoObjetivo: 3 },
+    mountainDesert2: { alturaObjetivo: 4, anchoObjetivo: 5.5, largoObjetivo: 3.2 },
+    mountainDesert3: {alturaObjetivo: 4, anchoObjetivo: 3.5, largoObjetivo: 3.2  },
+    mountainDesert4: {alturaObjetivo: 4, anchoObjetivo: 3, largoObjetivo: 1.13  },
+    mountainDesert5: { alturaObjetivo: 4, anchoObjetivo: 10, largoObjetivo: 1.15 },
+    mountainDesert6: { alturaObjetivo: 4, anchoObjetivo: 5, largoObjetivo: 2 },
+    mountainDesert7: { alturaObjetivo: 4, anchoObjetivo: 7, largoObjetivo: 1},
+    mountainDesert8: { alturaObjetivo: 6, anchoObjetivo: 9, largoObjetivo: 1},
+    mountainDesert9: { alturaObjetivo: 4, anchoObjetivo: 7, largoObjetivo: 1 },
 };
 
 // Arreglo de modelos listos para ser consumidos por los objetos de la escena
@@ -205,6 +290,15 @@ const modelos = [
         ],
     }),
     prepararRoad('roadStraight', 'Camino recto', roadStraightObj, roadStraightMtl, 0.5, rockyTrailTextureUrl),
+    prepararModeloPlano('tileZero', 'Tile Cero', tipoCeroObj, tipoCeroMtl, {
+        escala: 1,
+        textureMap: { '6_rocktext.jpg.png': tipoCeroTextureUrl },
+        textureUrl: tipoCeroTextureUrl,
+    }),
+    prepararDestino('destination', 'Destino', destinoObj, destinoMtl, {
+        escala: 0.55,
+        textureUrl: destinoTextureUrl,
+    }),
     {
         id: 'bleachers',
         nombre: 'Gradas',
@@ -221,7 +315,12 @@ const modelos = [
         { id: 'mountainDesert1', nombre: 'Montaña desierto 1', obj: mtnDesert1Obj, mtl: mtnDesert1Mtl },
         { id: 'mountainDesert2', nombre: 'Montaña desierto 2', obj: mtnDesert2Obj, mtl: mtnDesert2Mtl },
         { id: 'mountainDesert3', nombre: 'Montaña desierto 3', obj: mtnDesert3Obj, mtl: mtnDesert3Mtl },
+        { id: 'mountainDesert4', nombre: 'Montaña desierto 4', obj: mtnDesert4Obj, mtl: mtnDesert4Mtl },
+        { id: 'mountainDesert5', nombre: 'Montaña desierto 5', obj: mtnDesert5Obj, mtl: mtnDesert5Mtl },
         { id: 'mountainDesert6', nombre: 'Montaña desierto 6', obj: mtnDesert6Obj, mtl: mtnDesert6Mtl },
+        { id: 'mountainDesert7', nombre: 'Montaña desierto 7', obj: mtnDesert7Obj, mtl: mtnDesert7Mtl },
+        { id: 'mountainDesert8', nombre: 'Montaña desierto 8', obj: mtnDesert8Obj, mtl: mtnDesert8Mtl },
+        { id: 'mountainDesert9', nombre: 'Montaña desierto 9', obj: mtnDesert9Obj, mtl: mtnDesert9Mtl },
     ].map(({ id, nombre, obj, mtl }) =>
         prepararMontana(id, nombre, obj, mtl, mountainScaleOverrides[id] ?? {})
     ),

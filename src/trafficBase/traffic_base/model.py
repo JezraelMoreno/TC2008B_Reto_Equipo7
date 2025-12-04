@@ -41,7 +41,10 @@ class CityModel(Model):
         self.total_cars_created = 0
         self.total_cars_arrived = 0
         self.gradas = []
-        obstacle_symbols = {"#", "0", "1", "2", "3", "4", "5", "6", "7"}
+        obstacle_symbols = {
+            "#", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+            "a", "b", "c", "A", "B", "C",
+        }
 
         # Load the map file
         map_path = base_path / map_file
