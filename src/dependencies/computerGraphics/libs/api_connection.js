@@ -37,7 +37,10 @@ const mapMetadata = {
 
 const initData = {
     mapFile: "2025_base.txt",
-    NAgents: 0
+    NAgents: 0,
+    seed: 42,
+    spawn_interval: 10,
+    cars_per_spawn: 1
 };
 
 function orientCarByMovement(car) {
@@ -90,12 +93,13 @@ function refreshCollection(target, rawList, colorResolver, options = {}) {
 /*
  * Initializes the city model by sending a POST request to the agent server.
  */
-async function initAgentsModel() {
+async function initAgentsModel(overrides = {}) {
     try {
+        const payload = { ...initData, ...overrides };
         let response = await fetch(agent_server_uri + "init", {
             method: 'POST',
             headers: { 'Content-Type':'application/json' },
-            body: JSON.stringify(initData)
+            body: JSON.stringify(payload)
         });
 
         if (response.ok) {
@@ -103,6 +107,7 @@ async function initAgentsModel() {
             mapMetadata.width = result.width;
             mapMetadata.height = result.height;
             mapMetadata.map_file = result.map_file;
+            Object.assign(initData, payload);
             console.log(result.message);
             return result;
         }
@@ -170,4 +175,4 @@ async function update() {
     }
 }
 
-export { mapElements, mapMetadata, initAgentsModel, getMap, update };
+export { mapElements, mapMetadata, initData, initAgentsModel, getMap, update };

@@ -19,7 +19,7 @@ import { getModelo, modelos } from '../libs/modelos.js';
 
 // Functions and arrays for the communication with the API
 import {
-  mapElements, mapMetadata, initAgentsModel,
+  mapElements, mapMetadata, initAgentsModel, initData,
   update, getMap
 } from '../libs/api_connection.js';
 
@@ -85,6 +85,13 @@ const skybox = {
 };
 
 const { roads, destinations, obstacles, gradas, trafficLights, cars } = mapElements;
+const uiParams = {
+  seed: initData.seed ?? 42,
+  spawnInterval: initData.spawn_interval ?? 10,
+  carsPerSpawn: initData.cars_per_spawn ?? 1,
+  updateSpeedMs: 250,
+};
+let gui = null;
 
 const getTexture = (glRef, url, options = {}) => {
   if (!url) return null;
@@ -263,6 +270,47 @@ const emptyLights = {
   count: 0,
 };
 
+function resetMapCollections() {
+  mapElements.roads.length = 0;
+  mapElements.destinations.length = 0;
+  mapElements.obstacles.length = 0;
+  mapElements.gradas.length = 0;
+  mapElements.trafficLights.length = 0;
+  mapElements.cars.length = 0;
+}
+
+async function initializeSimulation(overrides = {}) {
+  updating = true;
+  try {
+    const payload = {
+      ...overrides,
+      seed: Math.round(overrides.seed ?? uiParams.seed),
+      spawn_interval: Math.round(overrides.spawn_interval ?? uiParams.spawnInterval),
+      cars_per_spawn: Math.round(overrides.cars_per_spawn ?? uiParams.carsPerSpawn),
+    };
+    const initResult = await initAgentsModel(payload);
+    if (!initResult) {
+      throw new Error('No se pudo inicializar el modelo con los parámetros seleccionados');
+    }
+    resetMapCollections();
+    await getMap();
+    scene.objects = [];
+    setupScene();
+    setupObjects(scene, gl, colorProgramInfo);
+    stepDuration = Math.max(30, overrides.updateSpeedMs ?? uiParams.updateSpeedMs);
+    lastUpdateTime = performance.now();
+    Object.assign(uiParams, {
+      seed: payload.seed,
+      spawnInterval: payload.spawn_interval,
+      carsPerSpawn: payload.cars_per_spawn,
+    });
+  } catch (error) {
+    console.error('Error inicializando la simulación', error);
+  } finally {
+    updating = false;
+  }
+}
+
 
 // Main function is async to be able to make the requests
 async function main() {
@@ -277,19 +325,8 @@ async function main() {
   colorTextureProgramInfo = twgl.createProgramInfo(gl, [vsTexGLSL, fsTexGLSL]);
   await setupSkybox(gl);
 
-  // Initialize the agents model
-  await initAgentsModel();
-
-  // Get the city map (roads, destinations, obstacles and traffic lights)
-  await getMap();
-  lastUpdateTime = performance.now();
-
-
-  // Initialize the scene
-  setupScene();
-
-  // Position the objects in the scene
-  setupObjects(scene, gl, colorProgramInfo);
+  // Initialize the agents model, load the map and place objects
+  await initializeSimulation();
 
   // Prepare the user interface
   setupUI();
@@ -590,12 +627,15 @@ function setupObjects(scene, gl, programInfo) {
   trafficLights.forEach((trafficLight) => {
     trafficLight.isTrafficLight = true;
     // Poner un tile de carretera debajo del semáforo para evitar huecos visuales
-    const roadTile = new Object3D(`road-tl-${trafficLight.id}`, trafficLight.posArray);
+    const basePos = [trafficLight.position.x, trafficLight.position.y, trafficLight.position.z];
+    const roadTile = new Object3D(`road-tl-${trafficLight.id}`, basePos);
     roadTile.color = roadColor;
+    // Offset fijo para que no cambie al mover sliders
+    const loweredTileOffset = -0.04;
     if (roadBase && roadModel) {
-      setBaseShapeRef(roadTile, roadScale, roadBase, roadOffsetY);
+      setBaseShapeRef(roadTile, roadScale, roadBase, loweredTileOffset);
     } else {
-      setBaseShapeRef(roadTile, defaultRoadScale);
+      setBaseShapeRef(roadTile, defaultRoadScale, baseCube, loweredTileOffset);
     }
     scene.addObject(roadTile);
 
@@ -778,7 +818,8 @@ async function drawScene() {
       const after = performance.now();
       const observed = after - lastUpdateTime;
       const clamped = Math.max(80, Math.min(1200, observed));
-      stepDuration = 0.7 * stepDuration + 0.3 * clamped;
+      const desired = Math.max(30, uiParams.updateSpeedMs);
+      stepDuration = 0.5 * desired + 0.5 * (0.7 * stepDuration + 0.3 * clamped);
       lastUpdateTime = after;
     } catch (error) {
       console.error(error);
@@ -811,18 +852,43 @@ function setupViewProjection(gl) {
 
 // Setup a ui.
 function setupUI() {
-  /*
-  const gui = new GUI();
+  if (gui) {
+    gui.destroy();
+  }
+  gui = new GUI({ title: 'Parámetros' });
 
-  // Settings for the animation
-  const animFolder = gui.addFolder('Animation:');
-  animFolder.add( settings.rotationSpeed, 'x', 0, 360)
-      .decimals(2)
-  animFolder.add( settings.rotationSpeed, 'y', 0, 360)
-      .decimals(2)
-  animFolder.add( settings.rotationSpeed, 'z', 0, 360)
-      .decimals(2)
-  */
+  gui.add(uiParams, 'seed')
+    .name('Seed')
+    .onFinishChange((value) => { uiParams.seed = Math.round(value); });
+
+  gui.add(uiParams, 'spawnInterval', 0, 25, 1)
+    .name('Intervalo de spawn')
+    .onFinishChange((value) => { uiParams.spawnInterval = Math.round(value); });
+
+  gui.add(uiParams, 'carsPerSpawn', 1, 4, 1)
+    .name('Coches por spawn')
+    .onFinishChange((value) => { uiParams.carsPerSpawn = Math.round(value); });
+
+  gui.add(uiParams, 'updateSpeedMs', 80, 1200, 10)
+    .name('Update speed (ms)')
+    .onFinishChange((value) => {
+      uiParams.updateSpeedMs = Math.max(30, Math.round(value));
+      stepDuration = uiParams.updateSpeedMs;
+      lastUpdateTime = performance.now();
+    });
+
+  const actions = {
+    aplicar: async () => {
+      await initializeSimulation({
+        seed: uiParams.seed,
+        spawn_interval: uiParams.spawnInterval,
+        cars_per_spawn: uiParams.carsPerSpawn,
+        updateSpeedMs: uiParams.updateSpeedMs,
+      });
+    },
+  };
+
+  gui.add(actions, 'aplicar').name('Aplicar cambios');
 }
 
 main();
