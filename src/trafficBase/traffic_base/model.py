@@ -1,3 +1,4 @@
+from pathlib import Path
 from mesa import Model
 from mesa.discrete_space import OrthogonalMooreGrid
 from mesa.datacollection import DataCollector
@@ -18,17 +19,27 @@ class CityModel(Model):
         cars_per_spawn: Number of cars to spawn each time
     """
 
-    def __init__(self, N=4, seed=42, spawn_interval=10, cars_per_spawn=1):
-
+    def __init__(self, N=4, seed=42, map_file="2025_base.txt", spawn_interval=10, cars_per_spawn=1):
         super().__init__(seed=seed)
 
+        # Resolve paths regardless of the working directory of the server
+        base_dir = Path(__file__).resolve().parent.parent
+        city_files_dir = base_dir / "city_files"
+        dictionary_path = city_files_dir / "mapDictionary.json"
+        map_path = city_files_dir / map_file
+
+        if not map_path.exists():
+            raise FileNotFoundError(f"Map file not found: {map_path}")
+
         # Load the map dictionary
-        dataDictionary = json.load(open("city_files/mapDictionary.json"))
+        with open(dictionary_path, "r", encoding="utf-8") as dictionary_file:
+            dataDictionary = json.load(dictionary_file)
 
         self.num_agents = N
         self.traffic_lights = []
         self.destinations = []
         self.roads = []
+        self.obstacles = []
         self.spawn_interval = spawn_interval
         self.cars_per_spawn = cars_per_spawn
         self.next_spawn_step = spawn_interval
@@ -39,11 +50,11 @@ class CityModel(Model):
         self.gradas = []
         obstacle_symbols = {
             "#", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-            "a", "b", "c", "A", "B", "C",
+            "a", "b", "c", "A", "B", "C", "G",
         }
 
         # Load the map file
-        with open("city_files/2025_base.txt") as baseFile:
+        with open(map_path, "r", encoding="utf-8") as baseFile:
             lines = baseFile.readlines()
             self.width = len(lines[0].strip())
             self.height = len(lines)
@@ -71,8 +82,14 @@ class CityModel(Model):
                         )
                         self.traffic_lights.append(agent)
 
-                    elif col == "#":
-                        agent = Obstacle(self, cell)
+                    elif col == "G":
+                        agent = Gradas(self, cell)
+                        self.gradas.append(agent)
+
+                    elif col in obstacle_symbols:
+                        kind = dataDictionary.get(col, "Obstacle")
+                        agent = Obstacle(self, cell, kind=kind)
+                        self.obstacles.append(agent)
 
                     elif col == "D":
                         agent = Destination(self, cell)
