@@ -89,6 +89,8 @@ def initModel():
     map_file = default_map
     num_agents = 0
     seed = 42
+    spawn_interval = 10
+    cars_per_spawn = 1
 
     if request.method == 'POST':
         try:
@@ -96,6 +98,8 @@ def initModel():
             num_agents = int(payload.get('NAgents', 0))
             map_file = payload.get('mapFile', map_file)
             seed = int(payload.get('seed', seed))
+            spawn_interval = int(payload.get('spawn_interval', payload.get('spawnInterval', spawn_interval)))
+            cars_per_spawn = int(payload.get('cars_per_spawn', payload.get('carsPerSpawn', cars_per_spawn)))
             currentStep = 0
 
         except Exception as e:
@@ -103,7 +107,13 @@ def initModel():
             return jsonify({"message": "Error initializing the model"}), 500
 
     try:
-        cityModel = CityModel(num_agents, seed=seed, map_file=map_file)
+        cityModel = CityModel(
+            num_agents,
+            seed=seed,
+            map_file=map_file,
+            spawn_interval=spawn_interval,
+            cars_per_spawn=cars_per_spawn
+        )
     except FileNotFoundError as e:
         print(e)
         return jsonify({"message": str(e)}), 400
@@ -117,7 +127,9 @@ def initModel():
         "message": f"City model initiated with map {map_file}",
         "width": cityModel.width,
         "height": cityModel.height,
-        "map_file": map_file
+        "map_file": map_file,
+        "spawn_interval": spawn_interval,
+        "cars_per_spawn": cars_per_spawn,
     })
 
 
