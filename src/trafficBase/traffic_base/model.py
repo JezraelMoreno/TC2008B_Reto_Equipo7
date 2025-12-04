@@ -36,6 +36,11 @@ class CityModel(Model):
         self.total_cars_arrived = 0
         self.consecutive_failed_spawns = 0  # Nuevo contador
         self.max_failed_spawns = 5  # Número de intentos fallidos antes de terminar
+        self.gradas = []
+        obstacle_symbols = {
+            "#", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+            "a", "b", "c", "A", "B", "C",
+        }
 
         # Load the map file
         with open("city_files/2025_base.txt") as baseFile:

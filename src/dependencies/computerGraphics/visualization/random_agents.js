@@ -28,6 +28,9 @@ import vsGLSL from '../assets/shaders/vs_color.glsl?raw';
 import fsGLSL from '../assets/shaders/fs_color.glsl?raw';
 import vsTexGLSL from '../assets/shaders/vs_color_tex.glsl?raw';
 import fsTexGLSL from '../assets/shaders/fs_color_tex.glsl?raw';
+import vsSkyboxGLSL from '../assets/shaders/vs_skybox.glsl?raw';
+import fsSkyboxGLSL from '../assets/shaders/fs_skybox.glsl?raw';
+import cubemapDesertUrl from '../assets/modelos/Cielo/Cubemap/Cubemap_Desert_02-512x512.png';
 
 const scene = new Scene3D();
 const textureCache = new Map();
@@ -64,7 +67,21 @@ const lightScale = { x: 0.35, y: 0.8, z: 0.35 };
 
 const sunLight = {
   direction: [0, -1, 0],   // Luz entrando desde arriba hacia abajo
-  ambient: [0.25, 0.25, 0.3],
+  ambient: [0, 0, 0],
+};
+
+const MAX_POINT_LIGHTS = 64;
+const destinationLightColor = [5, 5, 5];
+// Reducir brillo de semáforos
+const trafficLightGreenColor = [0.05, 1.0, 0.05];
+const trafficLightRedColor = [1.1, 0.08, 0.05];
+
+const skybox = {
+  programInfo: undefined,
+  bufferInfo: undefined,
+  vao: undefined,
+  texture: undefined,
+  ready: false,
 };
 
 const { roads, destinations, obstacles, gradas, trafficLights, cars } = mapElements;
@@ -89,6 +106,163 @@ function getRoadRotation(direction) {
   return { x: 0, y: yaw, z: 0 };
 }
 
+const loadImage = (url) => new Promise((resolve, reject) => {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => resolve(img);
+  img.onerror = (error) => reject(error);
+  img.src = url;
+});
+
+async function loadCubemapFromCross(glRef, url) {
+  try {
+    const image = await loadImage(url);
+    const faceSize = Math.floor(image.height / 3);
+    const validLayout = faceSize > 0 && image.width === faceSize * 4 && image.height === faceSize * 3;
+    if (!validLayout) {
+      console.warn('Skybox: formato inesperado para el cubemap, se esperaba layout 4x3.');
+      return null;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = faceSize;
+    canvas.height = faceSize;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      console.warn('Skybox: no se pudo crear el contexto 2D para cortar el cubemap.');
+      return null;
+    }
+
+    const faces = [
+      { target: glRef.TEXTURE_CUBE_MAP_POSITIVE_X, coord: [2, 1] },
+      { target: glRef.TEXTURE_CUBE_MAP_NEGATIVE_X, coord: [0, 1] },
+      { target: glRef.TEXTURE_CUBE_MAP_POSITIVE_Y, coord: [1, 0] },
+      { target: glRef.TEXTURE_CUBE_MAP_NEGATIVE_Y, coord: [1, 2] },
+      { target: glRef.TEXTURE_CUBE_MAP_POSITIVE_Z, coord: [1, 1] },
+      { target: glRef.TEXTURE_CUBE_MAP_NEGATIVE_Z, coord: [3, 1] },
+    ];
+
+    const texture = glRef.createTexture();
+    glRef.bindTexture(glRef.TEXTURE_CUBE_MAP, texture);
+    glRef.pixelStorei(glRef.UNPACK_FLIP_Y_WEBGL, false);
+
+    faces.forEach(({ target, coord }) => {
+      const [cx, cy] = coord;
+      ctx.clearRect(0, 0, faceSize, faceSize);
+      ctx.drawImage(
+        image,
+        cx * faceSize,
+        cy * faceSize,
+        faceSize,
+        faceSize,
+        0,
+        0,
+        faceSize,
+        faceSize
+      );
+      glRef.texImage2D(target, 0, glRef.RGBA, glRef.RGBA, glRef.UNSIGNED_BYTE, canvas);
+    });
+
+    glRef.generateMipmap(glRef.TEXTURE_CUBE_MAP);
+    glRef.texParameteri(glRef.TEXTURE_CUBE_MAP, glRef.TEXTURE_MIN_FILTER, glRef.LINEAR_MIPMAP_LINEAR);
+    glRef.texParameteri(glRef.TEXTURE_CUBE_MAP, glRef.TEXTURE_MAG_FILTER, glRef.LINEAR);
+    glRef.texParameteri(glRef.TEXTURE_CUBE_MAP, glRef.TEXTURE_WRAP_S, glRef.CLAMP_TO_EDGE);
+    glRef.texParameteri(glRef.TEXTURE_CUBE_MAP, glRef.TEXTURE_WRAP_T, glRef.CLAMP_TO_EDGE);
+    glRef.texParameteri(glRef.TEXTURE_CUBE_MAP, glRef.TEXTURE_WRAP_R, glRef.CLAMP_TO_EDGE);
+    glRef.bindTexture(glRef.TEXTURE_CUBE_MAP, null);
+
+    return texture;
+  } catch (error) {
+    console.error('Skybox: error cargando cubemap', error);
+    return null;
+  }
+}
+
+async function setupSkybox(glRef) {
+  skybox.programInfo = twgl.createProgramInfo(glRef, [vsSkyboxGLSL, fsSkyboxGLSL]);
+  skybox.bufferInfo = twgl.createBufferInfoFromArrays(glRef, {
+    a_position: {
+      numComponents: 2,
+      data: [
+        -1, -1,
+         1, -1,
+        -1,  1,
+        -1,  1,
+         1, -1,
+         1,  1,
+      ],
+    },
+  });
+  skybox.vao = twgl.createVAOFromBufferInfo(glRef, skybox.programInfo, skybox.bufferInfo);
+  skybox.texture = await loadCubemapFromCross(glRef, cubemapDesertUrl);
+  skybox.ready = !!skybox.texture;
+}
+
+function drawSkybox(glRef, viewMatrix, projectionMatrix) {
+  if (!skybox.ready || !skybox.programInfo || !skybox.texture || !skybox.vao) return;
+
+  const viewNoTranslation = [...viewMatrix];
+  viewNoTranslation[12] = 0;
+  viewNoTranslation[13] = 0;
+  viewNoTranslation[14] = 0;
+
+  const viewDirProj = M4.multiply(projectionMatrix, viewNoTranslation);
+  const viewDirProjInv = M4.inverse(viewDirProj);
+
+  glRef.depthFunc(glRef.LEQUAL);
+  glRef.depthMask(false);
+
+  glRef.useProgram(skybox.programInfo.program);
+  glRef.bindVertexArray(skybox.vao);
+  twgl.setUniforms(skybox.programInfo, {
+    u_viewDirectionProjectionInverse: viewDirProjInv,
+    u_skybox: skybox.texture,
+  });
+  twgl.drawBufferInfo(glRef, skybox.bufferInfo);
+
+  glRef.depthMask(true);
+  glRef.depthFunc(glRef.LESS);
+}
+
+function getTrafficLightColor(light) {
+  const state = (light?.state ?? '').toString().toLowerCase();
+  const isGreen = state === 'green' || state === '1' || state === 'true' || light?.state === true || light?.state === 1;
+  return isGreen ? trafficLightGreenColor : trafficLightRedColor;
+}
+
+function buildPointLights(destinationsList, trafficLightsList) {
+  const positions = new Float32Array(MAX_POINT_LIGHTS * 3);
+  const colors = new Float32Array(MAX_POINT_LIGHTS * 3);
+  let count = 0;
+
+  for (let i = 0; i < trafficLightsList.length && count < MAX_POINT_LIGHTS; i++) {
+    const light = trafficLightsList[i];
+    const pos = light.getInterpolatedPos ? light.getInterpolatedPos(1) : light.posArray ?? [light.x, light.y, light.z];
+    const color = getTrafficLightColor(light);
+    light.emissive = color;
+    positions.set(pos, count * 3);
+    colors.set(color, count * 3);
+    count++;
+  }
+
+  for (let i = 0; i < destinationsList.length && count < MAX_POINT_LIGHTS; i++) {
+    const dest = destinationsList[i];
+    const pos = dest.getInterpolatedPos ? dest.getInterpolatedPos(1) : dest.posArray ?? [dest.x, dest.y, dest.z];
+    const color = dest.emissive ?? destinationLightColor;
+    positions.set(pos, count * 3);
+    colors.set(color, count * 3);
+    count++;
+  }
+
+  return { positions, colors, count };
+}
+
+const emptyLights = {
+  positions: new Float32Array(MAX_POINT_LIGHTS * 3),
+  colors: new Float32Array(MAX_POINT_LIGHTS * 3),
+  count: 0,
+};
+
 
 // Main function is async to be able to make the requests
 async function main() {
@@ -101,6 +275,7 @@ async function main() {
   // Prepare the program with the shaders
   colorProgramInfo = twgl.createProgramInfo(gl, [vsGLSL, fsGLSL]);
   colorTextureProgramInfo = twgl.createProgramInfo(gl, [vsTexGLSL, fsTexGLSL]);
+  await setupSkybox(gl);
 
   // Initialize the agents model
   await initAgentsModel();
@@ -222,8 +397,17 @@ function setupObjects(scene, gl, programInfo) {
     const base = new Object3D(`mount-base-${model.id}`);
     base.arrays = model.arrays;
     base.bufferInfo = twgl.createBufferInfoFromArrays(gl, model.arrays);
-    base.vao = twgl.createVAOFromBufferInfo(gl, programInfo, base.bufferInfo);
-    base.useVertexColors = !model.color;
+    const mountainTexture = getTexture(gl, model.textureUrl, {
+      wrapS: gl.REPEAT,
+      wrapT: gl.REPEAT,
+      min: gl.LINEAR_MIPMAP_LINEAR,
+      mag: gl.LINEAR,
+    });
+    const mountainProgram = mountainTexture ? colorTextureProgramInfo : programInfo;
+    base.vao = twgl.createVAOFromBufferInfo(gl, mountainProgram, base.bufferInfo);
+    base.useVertexColors = !mountainTexture && !model.color;
+    base.useTexture = !!mountainTexture;
+    base.texture = mountainTexture;
     return { model, base };
   });
   const mountainBaseById = new Map(mountainBases.map((entry) => [entry.model.id, entry]));
@@ -258,6 +442,50 @@ function setupObjects(scene, gl, programInfo) {
     };
     roadOffsetY = roadModel.offsetY ?? 0;
   }
+  const destinationModel = getModelo('destination');
+  let destinationBase = null;
+  let destinationOffsetY = 0;
+  if (destinationModel) {
+    destinationBase = new Object3D(-6);
+    destinationBase.arrays = destinationModel.arrays;
+    destinationBase.bufferInfo = twgl.createBufferInfoFromArrays(gl, destinationModel.arrays);
+    const destinationTexture = getTexture(gl, destinationModel.textureUrl, {
+      wrapS: gl.REPEAT,
+      wrapT: gl.REPEAT,
+      min: gl.LINEAR_MIPMAP_LINEAR,
+      mag: gl.LINEAR,
+    });
+    const destinationProgram = destinationTexture ? colorTextureProgramInfo : programInfo;
+    destinationBase.vao = twgl.createVAOFromBufferInfo(gl, destinationProgram, destinationBase.bufferInfo);
+    destinationBase.useVertexColors = !destinationTexture && !destinationModel.color;
+    destinationBase.useTexture = !!destinationTexture;
+    destinationBase.texture = destinationTexture;
+    destinationOffsetY = destinationModel.offsetY ?? 0;
+  }
+  const tileZeroModel = getModelo('tileZero');
+  let tileZeroBase = null;
+  let tileZeroScale = { ...emptyTileScale };
+  let tileZeroOffsetY = 0;
+  if (tileZeroModel) {
+    tileZeroBase = new Object3D(-7);
+    tileZeroBase.arrays = tileZeroModel.arrays;
+    tileZeroBase.bufferInfo = twgl.createBufferInfoFromArrays(gl, tileZeroModel.arrays);
+    const tileZeroTexture = getTexture(gl, tileZeroModel.textureUrl, {
+      wrapS: gl.REPEAT,
+      wrapT: gl.REPEAT,
+      min: gl.LINEAR_MIPMAP_LINEAR,
+      mag: gl.LINEAR,
+    });
+    const tileZeroProgram = tileZeroTexture ? colorTextureProgramInfo : programInfo;
+    tileZeroBase.vao = twgl.createVAOFromBufferInfo(gl, tileZeroProgram, tileZeroBase.bufferInfo);
+    tileZeroBase.useVertexColors = !tileZeroTexture && !tileZeroModel.color;
+    tileZeroBase.useTexture = !!tileZeroTexture;
+    tileZeroBase.texture = tileZeroTexture;
+    const escala = tileZeroModel.escala ?? tileZeroModel.scale?.x ?? emptyTileScale.x;
+    const scaleOverride = tileZeroModel.scale ?? { x: escala, y: escala, z: escala };
+    tileZeroScale = scaleOverride;
+    tileZeroOffsetY = tileZeroModel.offsetY ?? 0;
+  }
   const gradasModel = getModelo('bleachers');
   let gradasBase = null;
   if (gradasModel) {
@@ -278,13 +506,40 @@ function setupObjects(scene, gl, programInfo) {
     scene.addObject(road);
   });
   destinations.forEach((destination) => {
-    setBaseShapeRef(destination, blockScale);
+    destination.isDestination = true;
+    if (destinationBase && destinationModel) {
+      const scale = destinationModel.scale ?? { x: destinationModel.escala, y: destinationModel.escala, z: destinationModel.escala };
+      const offsetY = destinationModel.offsetY ?? destinationOffsetY;
+      destination.color = destinationModel.color ?? destination.color;
+      destination.emissive = destinationModel.emissive ?? destination.emissive;
+      setBaseShapeRef(destination, scale, destinationBase, offsetY, destinationModel.rotation);
+    } else {
+      setBaseShapeRef(destination, blockScale);
+    }
     scene.addObject(destination);
   });
   obstacles.forEach((obstacle) => {
     const isEmptyTile = obstacle.kind === 'Empty';
     if (isEmptyTile) {
-      setBaseShapeRef(obstacle, emptyTileScale, baseCube);
+      if (tileZeroBase && tileZeroModel) {
+        const scale = tileZeroModel.scale ?? { x: tileZeroModel.escala, y: tileZeroModel.escala, z: tileZeroModel.escala };
+        const offsetY = tileZeroModel.offsetY ?? tileZeroOffsetY;
+        obstacle.color = tileZeroModel.color ?? obstacle.color;
+        setBaseShapeRef(obstacle, scale, tileZeroBase, offsetY, tileZeroModel.rotation);
+      } else {
+        setBaseShapeRef(obstacle, emptyTileScale, baseCube);
+        const texture = roadTextureUrl
+          ? getTexture(gl, roadTextureUrl, {
+              wrapS: gl.REPEAT,
+              wrapT: gl.REPEAT,
+              min: gl.LINEAR_MIPMAP_LINEAR,
+              mag: gl.LINEAR,
+            })
+          : null;
+        obstacle.useTexture = !!texture;
+        obstacle.texture = texture;
+        obstacle.vertexColorMix = texture ? 0 : (obstacle.vertexColorMix ?? 0);
+      }
       scene.addObject(obstacle);
       return;
     }
@@ -321,6 +576,17 @@ function setupObjects(scene, gl, programInfo) {
     }
     scene.addObject(grada);
   });
+
+  // Lookup de dirección de calles por celda para orientar semáforos
+  const roadDirByPos = new Map(
+    roads
+      .filter((r) => r.direction)
+      .map((r) => [`${Math.round(r.position.x)}|${Math.round(r.position.z)}`, r.direction])
+  );
+  const neighborOffsets = [
+    [1, 0], [-1, 0], [0, 1], [0, -1],
+  ];
+
   trafficLights.forEach((trafficLight) => {
     trafficLight.isTrafficLight = true;
     // Poner un tile de carretera debajo del semáforo para evitar huecos visuales
@@ -336,7 +602,19 @@ function setupObjects(scene, gl, programInfo) {
     if (trafficLightBase && trafficLightModel) {
       const scale = { x: trafficLightModel.escala, y: trafficLightModel.escala, z: trafficLightModel.escala };
       const offsetY = trafficLightModel.offsetY ?? 0;
-      setBaseShapeRef(trafficLight, scale, trafficLightBase, offsetY);
+      const baseKey = `${Math.round(trafficLight.position.x)}|${Math.round(trafficLight.position.z)}`;
+      let dir = roadDirByPos.get(baseKey);
+      if (!dir) {
+        for (const [dx, dz] of neighborOffsets) {
+          const key = `${Math.round(trafficLight.position.x) + dx}|${Math.round(trafficLight.position.z) + dz}`;
+          dir = roadDirByPos.get(key);
+          if (dir) break;
+        }
+      }
+      const dirRot = getRoadRotation(dir ?? '');
+      // Solo girar sobre Y para orientar sin acostarlos
+      const rotation = { x: 0, y: dirRot.y || 0, z: 0 };
+      setBaseShapeRef(trafficLight, scale, trafficLightBase, offsetY, rotation);
     } else {
       setBaseShapeRef(trafficLight, lightScale);
     }
@@ -362,6 +640,23 @@ function syncCarsInScene(setBaseShape = (object) => setBaseShapeRef(object, defa
     if (!car.vao) {
       setBaseShape(car);
     }
+    // Track yaw only when it changes (per update) to interpolate turns
+    const currentYaw = car.rotDeg?.y ?? car.baseYaw ?? 0;
+    if (car.lastYaw === undefined) {
+      car.lastYaw = currentYaw;
+      car.yawStart = currentYaw;
+      car.yawEnd = currentYaw;
+      car.yawChangedAtUpdate = false;
+    } else if (currentYaw !== car.lastYaw) {
+      car.yawStart = car.lastYaw;
+      car.yawEnd = currentYaw;
+      car.lastYaw = currentYaw;
+      car.yawChangedAtUpdate = true;
+    } else {
+      car.yawChangedAtUpdate = false;
+      car.yawStart = car.yawStart ?? currentYaw;
+      car.yawEnd = car.yawEnd ?? currentYaw;
+    }
     if (!scene.objects.includes(car)) {
       scene.addObject(car);
     }
@@ -369,7 +664,7 @@ function syncCarsInScene(setBaseShape = (object) => setBaseShapeRef(object, defa
 }
 
 // Draw an object with its corresponding transformations
-function drawObject(gl, programInfo, object, viewProjectionMatrix, alpha) {
+function drawObject(gl, programInfo, object, viewProjectionMatrix, lights, alpha) {
   // Prepare the vector for translation and scale
   let v3_tra = object.getInterpolatedPos(alpha);
   let v3_sca = object.scaArray;
@@ -387,7 +682,16 @@ function drawObject(gl, programInfo, object, viewProjectionMatrix, alpha) {
   // Create the individual transform matrices
   const scaMat = M4.scale(v3_sca);
   const rotXMat = M4.rotationX(object.rotRad.x);
-  const rotYMat = M4.rotationY(object.rotRad.y);
+  const rotYMat = (() => {
+    if (object.isCar && object.yawStart !== undefined && object.yawEnd !== undefined && object.yawChangedAtUpdate) {
+      const start = object.yawStart;
+      const end = object.yawEnd;
+      const delta = ((end - start + 540) % 360) - 180; // shortest path
+      const yawDeg = start + delta * alpha;
+      return M4.rotationY(yawDeg * Math.PI / 180);
+    }
+    return M4.rotationY(object.rotRad.y);
+  })();
   const rotZMat = M4.rotationZ(object.rotRad.z);
   const traMat = M4.translation(v3_tra);
 
@@ -416,7 +720,11 @@ function drawObject(gl, programInfo, object, viewProjectionMatrix, alpha) {
   const objectUniforms = {
     u_worldViewProjection: wvpMat,
     u_worldInverseTranspose: worldInverseTranspose,
+    u_world: transforms,
     u_emissive: emissiveColor,
+    u_pointLightCount: lights.count,
+    u_pointLightPos: lights.positions,
+    u_pointLightColor: lights.colors,
   };
   if (useTexture) {
     objectUniforms.u_texture = object.texture;
@@ -446,15 +754,19 @@ async function drawScene() {
   gl.enable(gl.DEPTH_TEST);
 
   scene.camera.checkKeys();
-  //console.log(scene.camera);
-  const viewProjectionMatrix = setupViewProjection(gl);
+  const { viewProjectionMatrix, viewMatrix, projectionMatrix } = setupViewProjection(gl);
+
+  drawSkybox(gl, viewMatrix, projectionMatrix);
+
+  const lights = buildPointLights(destinations, trafficLights);
 
   // Draw the objects
   for (let object of scene.objects) {
     const useTexture = !!object.texture && !!colorTextureProgramInfo;
     const programInfo = useTexture ? colorTextureProgramInfo : colorProgramInfo;
     gl.useProgram(programInfo.program);
-    drawObject(gl, programInfo, object, viewProjectionMatrix, alpha);
+    const applyLights = object.isDestination || object.isTrafficLight ? emptyLights : lights;
+    drawObject(gl, programInfo, object, viewProjectionMatrix, applyLights, alpha);
   }
 
   // Update the scene after the elapsed duration
@@ -494,7 +806,7 @@ function setupViewProjection(gl) {
   const viewMatrix = M4.inverse(cameraMatrix);
   const viewProjectionMatrix = M4.multiply(projectionMatrix, viewMatrix);
 
-  return viewProjectionMatrix;
+  return { viewProjectionMatrix, viewMatrix, projectionMatrix };
 }
 
 // Setup a ui.
