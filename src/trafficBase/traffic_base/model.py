@@ -2,7 +2,6 @@ from mesa import Model
 from mesa.discrete_space import OrthogonalMooreGrid
 from mesa.datacollection import DataCollector
 from traffic_base.agent import *
-from pathlib import Path
 import json
 import random
 import math
@@ -19,17 +18,12 @@ class CityModel(Model):
         cars_per_spawn: Number of cars to spawn each time
     """
 
-    def __init__(self, N=4, seed=42, spawn_interval=10, cars_per_spawn=1, map_file="2025_base.txt"):
+    def __init__(self, N=4, seed=42, spawn_interval=10, cars_per_spawn=1):
 
         super().__init__(seed=seed)
 
         # Load the map dictionary
-        base_path = Path(__file__).resolve().parents[1] / "city_files"
-        dictionary_path = base_path / "mapDictionary.json"
-        if not dictionary_path.exists():
-            raise FileNotFoundError(f"No se encontró el diccionario del mapa en {dictionary_path}")
-
-        dataDictionary = json.loads(dictionary_path.read_text())
+        dataDictionary = json.load(open("city_files/mapDictionary.json"))
 
         self.num_agents = N
         self.traffic_lights = []
@@ -40,15 +34,11 @@ class CityModel(Model):
         self.next_spawn_step = spawn_interval
         self.total_cars_created = 0
         self.total_cars_arrived = 0
-        self.gradas = []
-        obstacle_symbols = {"#", "0", "1", "2", "3", "4", "5", "6", "7"}
+        self.consecutive_failed_spawns = 0  # Nuevo contador
+        self.max_failed_spawns = 5  # Número de intentos fallidos antes de terminar
 
         # Load the map file
-        map_path = base_path / map_file
-        if not map_path.exists():
-            raise FileNotFoundError(f"No se encontró el archivo de mapa {map_path}")
-
-        with open(map_path) as baseFile:
+        with open("city_files/2025_base.txt") as baseFile:
             lines = baseFile.readlines()
             self.width = len(lines[0].strip())
             self.height = len(lines)
@@ -63,7 +53,7 @@ class CityModel(Model):
 
                     cell = self.grid[(c, self.height - r - 1)]
 
-                    if col in ["v", "V", "^", ">", "<"]:
+                    if col in ["v", "^", ">", "<"]:
                         agent = Road(self, cell, dataDictionary[col])
                         self.roads.append(agent)
 
@@ -76,13 +66,8 @@ class CityModel(Model):
                         )
                         self.traffic_lights.append(agent)
 
-                    elif col in obstacle_symbols:
-                        obstacle_type = dataDictionary.get(col, "Obstacle")
-                        agent = Obstacle(self, cell, obstacle_type)
-
-                    elif col == "G":
-                        agent = Gradas(self, cell)
-                        self.gradas.append(agent)
+                    elif col == "#":
+                        agent = Obstacle(self, cell)
 
                     elif col == "D":
                         agent = Destination(self, cell)
@@ -160,7 +145,7 @@ class CityModel(Model):
             
             cell = self.grid[position]
             
-            car = Car(self, position, car_id=self.total_cars_created + 1)
+            car = Car(self, position)
             car.cell = cell
             self.total_cars_created += 1
             
@@ -168,45 +153,35 @@ class CityModel(Model):
     
     def spawn_new_cars(self):
         """
-        Crea múltiples coches nuevos según cars_per_spawn.
-        Retorna True si se creó al menos un coche, False si todas las esquinas están ocupadas.
+        Crea múltiples coches nuevos en las esquinas según cars_per_spawn.
+        Retorna el número de coches creados exitosamente.
         """
-        spawned = 0
         corners = self.get_corners()
-        corner = corners[self.total_cars_created % 4]
-        position = self.find_nearest_road(corner)
+        spawned = 0
+        available_corners = []
         
-        if not self.is_valid_road(position):
-            return False
-        
-        cell = self.grid[position]
-        
-        agents_in_cell = list(cell.agents)
-        if any(isinstance(agent, Car) for agent in agents_in_cell):
-            print(f"No se puede crear coche en {position}, posición ocupada")
-            return False
-        
-        car = Car(self, position, car_id=self.total_cars_created + 1)
-        car.cell = cell
-        self.total_cars_created += 1
-        
-        print(f"Nuevo coche {self.total_cars_created} spawneado en posición {position}")
-        return True
-        
-        for i in range(self.cars_per_spawn):
-            # Seleccionar esquina de forma cíclica
-            corner = corners[self.total_cars_created % 4]
+        # Primero, identificar qué esquinas están disponibles
+        for corner in corners:
             position = self.find_nearest_road(corner)
             
             if not self.is_valid_road(position):
                 continue
             
             cell = self.grid[position]
-            
             agents_in_cell = list(cell.agents)
-            if any(isinstance(agent, Car) for agent in agents_in_cell):
-                print(f"No se puede crear coche en {position}, posición ocupada")
-                print("\nSIMULACION TERMINADA: No se puede crear coche en esquina ocupada")
+            
+            # Verificar si la esquina está disponible
+            if not any(isinstance(agent, Car) for agent in agents_in_cell):
+                available_corners.append((corner, position))
+        
+        # Si no hay esquinas disponibles
+        if len(available_corners) == 0:
+            print(f"No hay esquinas disponibles para spawn en step {self.steps}")
+            self.consecutive_failed_spawns += 1
+            
+            # Solo terminar si han fallado múltiples intentos consecutivos
+            if self.consecutive_failed_spawns >= self.max_failed_spawns:
+                print(f"\nSIMULACION TERMINADA: {self.max_failed_spawns} intentos consecutivos sin poder crear coches")
                 print(f"Estadisticas finales:")
                 print(f"   - Total coches creados: {self.total_cars_created}")
                 print(f"   - Total coches que llegaron: {self.total_cars_arrived}")
@@ -220,46 +195,35 @@ class CityModel(Model):
                 
                 print(f"   - Todos los coches han sido eliminados")
                 self.running = False
-                return False
+            
+            return 0
+        
+        # Intentar crear coches en esquinas disponibles
+        for i in range(min(self.cars_per_spawn, len(available_corners))):
+            # Usar el índice total de coches creados para rotar entre esquinas disponibles
+            corner_index = self.total_cars_created % len(available_corners)
+            corner, position = available_corners[corner_index]
+            
+            cell = self.grid[position]
+            
+            # Doble verificación (por si acaso otro coche se movió aquí)
+            agents_in_cell = list(cell.agents)
+            if any(isinstance(agent, Car) for agent in agents_in_cell):
+                print(f"Esquina {position} ocupada en último momento")
+                continue
             
             car = Car(self, position)
             car.cell = cell
             self.total_cars_created += 1
             spawned += 1
             
-            print(f"Nuevo coche {self.total_cars_created} spawneado en posición {position}")
+            print(f"Nuevo coche {self.total_cars_created} spawneado en posición {position} (esquina {corner})")
         
-        # Si ningún coche se pudo crear, verificar si todas las esquinas están ocupadas
-        if spawned == 0:
-            # Verificar todas las esquinas
-            all_corners_occupied = True
-            for corner in corners:
-                position = self.find_nearest_road(corner)
-                if self.is_valid_road(position):
-                    cell = self.grid[position]
-                    agents_in_cell = list(cell.agents)
-                    if not any(isinstance(agent, Car) for agent in agents_in_cell):
-                        all_corners_occupied = False
-                        break
-            
-            if all_corners_occupied:
-                print("\nSIMULACION TERMINADA: Todas las esquinas están ocupadas")
-                print(f"Estadisticas finales:")
-                print(f"   - Total coches creados: {self.total_cars_created}")
-                print(f"   - Total coches que llegaron: {self.total_cars_arrived}")
-                active_cars = sum(1 for agent in self.agents if isinstance(agent, Car))
-                print(f"   - Coches activos: {active_cars}")
-                
-                # Eliminar todos los coches activos
-                cars_to_remove = [agent for agent in self.agents if isinstance(agent, Car)]
-                for car in cars_to_remove:
-                    car.remove()
-                
-                print(f"   - Todos los coches han sido eliminados")
-                self.running = False
-                return False
+        # Si spawneamos exitosamente, resetear el contador de fallos
+        if spawned > 0:
+            self.consecutive_failed_spawns = 0
         
-        return spawned > 0
+        return spawned
             
     def heuristic(self, pos1, pos2):
         """Calcula la distancia Manhattan"""
@@ -273,7 +237,7 @@ class CityModel(Model):
         cell = self.grid[pos]
         agents_in_cell = list(cell.agents)
         
-        if any(isinstance(agent, (Obstacle, Gradas)) for agent in agents_in_cell):
+        if any(isinstance(agent, Obstacle) for agent in agents_in_cell):
             return False
         
         return any(isinstance(agent, (Road, Traffic_Light, Destination)) 
@@ -493,11 +457,13 @@ class CityModel(Model):
         
         # Verificar si es momento de crear nuevos coches
         if self.spawn_interval > 0 and self.steps >= self.next_spawn_step:
-            spawn_result = self.spawn_new_cars()
-            if spawn_result:
-                self.next_spawn_step = self.steps + self.spawn_interval
-            # Si spawn_result es False, significa que todas las esquinas están ocupadas
-            # y self.running ya fue puesto en False en spawn_new_cars()
+            spawned_count = self.spawn_new_cars()
+            
+            # Siempre programar el siguiente spawn, incluso si no se pudo crear ningún coche
+            self.next_spawn_step = self.steps + self.spawn_interval
+            
+            # Si no se pudo crear ningún coche, no terminar inmediatamente
+            # El contador consecutive_failed_spawns maneja esto
         
         # Ejecutar step de Traffic_Lights
         for agent in self.traffic_lights:
@@ -512,6 +478,4 @@ class CityModel(Model):
         # Imprimir estadísticas cada 50 steps
         if self.steps % 50 == 0:
             active_cars = sum(1 for agent in self.agents if isinstance(agent, Car))
-            print(f"\n Step {self.steps} - Coches activos: {active_cars} | Creados: {self.total_cars_created} | Llegaron: {self.total_cars_arrived}")
-
             print(f"\nStep {self.steps} - Coches activos: {active_cars} | Creados: {self.total_cars_created} | Llegaron: {self.total_cars_arrived}")
