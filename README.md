@@ -19,3 +19,9 @@ económicas y la calidad de vida de millones de personas.
 
 Este reto te permitirá proponer una solución al problema de movilidad urbana en México, mediante un enfoque que reduzca la congestión vehicular al simular de manera 
 gráfica el tráfico, representando la salida de un sistema multi agentes.
+
+## Para Correr la Simulación
+Rutas:
+- TC2008B_Reto_Equipo7\src\dependencies\computerGraphics\ (node dependencies)
+- http://localhost:5174/visualization/index.html (Localhost donde se corre la simulación)
+- TC2008B_Reto_Equipo7\src\dependencies\computerGraphics\Server\agentsServer\agents_server.py (Servidor de Flask)
