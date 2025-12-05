@@ -6,47 +6,6 @@ from traffic_base.agent import *
 import json
 import random
 import math
-import requests
-
-API_URL = "http://10.49.12.39:5000/api/"
-API_ENDPOINT = "attempt"
-API_BASE_PAYLOAD = {
-    "year": 2025,
-    "classroom": 301,
-    "name": "La maquina",
-    "attempt_number": 0,
-}
-API_HEADERS = {"Content-Type": "application/json"}
-
-
-def post_metrics(metrics, step_number=None):
-    """Send metrics to the external API; errors are logged but do not stop the sim."""
-    payload = {
-        **API_BASE_PAYLOAD,
-        **{k: v for k, v in metrics.items() if k != "step"},
-    }
-    step_label = step_number if step_number is not None else metrics.get("step", "?")
-    print(f"[METRICS] Attempt step {step_label}: sending {payload}", flush=True)
-    try:
-        response = requests.post(
-            API_URL + API_ENDPOINT,
-            data=json.dumps(payload),
-            headers=API_HEADERS,
-            timeout=3,
-        )
-        status = "successful" if response.ok else "failed"
-        print(
-            f"[METRICS] Step {step_label} {status} (status {response.status_code}) "
-            f"body: {response.text}",
-            flush=True,
-        )
-        try:
-            print("[METRICS] Response:", response.json())
-        except Exception:
-            print("[METRICS] Response (raw):", response.text)
-    except Exception as exc:
-        print(f"[METRICS] Error sending metrics at step {step_label}: {exc}", flush=True)
-
 
 
 class CityModel(Model):
@@ -89,7 +48,6 @@ class CityModel(Model):
         self.consecutive_failed_spawns = 0  # Nuevo contador
         self.max_failed_spawns = 5  # Número de intentos fallidos antes de terminar
         self.gradas = []
-        self._last_metrics_step_sent = None
         obstacle_symbols = {
             "#", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
             "a", "b", "c", "A", "B", "C", "G",
@@ -514,18 +472,6 @@ class CityModel(Model):
         print(f"End direction: {self.get_road_direction(end)}")
         return []
 
-    def _build_metrics_payload(self, step_number):
-        active_cars = sum(1 for agent in self.agents if isinstance(agent, Car))
-        return {
-            "step": step_number,
-            "current_cars": active_cars,
-            "total_arrived": self.total_cars_arrived,
-        }
-
-    def send_metrics_update(self, step_number):
-        metrics = self._build_metrics_payload(step_number)
-        post_metrics(metrics, step_number=step_number)
-
     def step(self):
         """Advance the model by one step."""
         # Recolectar datos para las gráficas
@@ -550,16 +496,7 @@ class CityModel(Model):
         self.random.shuffle(cars)
         for car in cars:
             car.step()
-
-        current_step = getattr(self, "steps", 0)
-        if (
-            current_step
-            and current_step % 5 == 0
-            and current_step != self._last_metrics_step_sent
-        ):
-            self._last_metrics_step_sent = current_step
-            self.send_metrics_update(current_step)
-
+        
         # Imprimir estadísticas cada 50 steps
         if self.steps % 50 == 0:
             active_cars = sum(1 for agent in self.agents if isinstance(agent, Car))
